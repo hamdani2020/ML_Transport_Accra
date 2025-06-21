@@ -1,0 +1,72 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+.venv/
+
+# Data files (large GTFS files)
+data/
+data/*.csv
+data/*.txt
+data/*.parquet
+data/*.zip
+
+# Large model artifacts and logs (but keep small ones)
+models/evaluation_*
+mlflow.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Documentation
+README.md
+*.md
+
+# Tests
+tests/
+test_*
+
+# Scripts (not needed in inference container)
+scripts/
+pipelines/
+
+# Airflow
+airflow/ 

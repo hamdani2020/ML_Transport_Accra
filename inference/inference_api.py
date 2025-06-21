@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 from typing import Dict, List, Optional
 import os
 import yaml
@@ -63,14 +66,24 @@ def get_api_key(api_key_header: str = Security(api_key_header)) -> str:
     )
 
 def load_model():
-    """Load the latest production model from MLflow"""
+    """Load the latest production model from MLflow and return (model, version)"""
     try:
         mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
-        model = mlflow.pyfunc.load_model(
-            model_uri=f"models:/{config['model']['name']}/Production"
-        )
-        logger.info(f"Loaded model version: {model.version}")
-        return model
+        model_name = config["model"]["name"]
+        client = mlflow.tracking.MlflowClient()
+        # Find the production version
+        versions = client.search_model_versions(f"name='{model_name}'")
+        prod_version = None
+        for v in versions:
+            if v.current_stage == "Production":
+                prod_version = v.version
+                break
+        if prod_version is None:
+            logger.error("No model in Production stage found.")
+            raise HTTPException(status_code=500, detail="No model in Production stage.")
+        model = mlflow.pyfunc.load_model(model_uri=f"models:/{model_name}/Production")
+        logger.info(f"Loaded model: {model_name}, version: {prod_version}")
+        return model, prod_version
     except Exception as e:
         logger.error(f"Error loading model: {str(e)}")
         raise HTTPException(
@@ -78,36 +91,77 @@ def load_model():
             detail="Model loading failed"
         )
 
+# Global model and version
+model = None
+model_version = None
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the model and other resources on startup"""
-    global model
-    model = load_model()
-    logger.info("API startup complete")
+    global model, model_version
+    try:
+        model, model_version = load_model()
+        logger.info("API startup complete")
+    except Exception as e:
+        logger.error(f"Failed to load model on startup: {str(e)}")
+        # Set model to None so the API can still start
+        model = None
+        model_version = None
+        logger.warning("API starting without model - predictions will fail")
+
+@app.get("/")
+async def root():
+    """Root endpoint showing model details."""
+    if model is None:
+        return {"status": "unhealthy", "error": "Model not loaded"}
+    return {
+        "status": "healthy",
+        "model_name": config["model"]["name"],
+        "model_version": model_version,
+        "features": list(config["features"]["numerical_columns"] + config["features"]["categorical_columns"]),
+        "description": "ML Transport Accra Prediction API"
+    }
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "model_version": model.version}
+    if model is None:
+        return {"status": "unhealthy", "error": "Model not loaded"}
+    return {"status": "healthy", "model_version": model_version}
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(
     request: PredictionRequest,
     api_key: str = Depends(get_api_key)
 ):
-    """Make predictions using the loaded model"""
+    """Make predictions using the loaded model. Uses features: distance, speed, passenger_count, day_of_week (or hour_of_day)."""
     try:
         with PREDICTION_LATENCY.time():
-            # Preprocess input
-            features = {
-                **request.features,
-                "route_id": request.route_id,
-                "stop_id": request.stop_id,
-                "timestamp": request.timestamp
-            }
+            # Extract required features
+            features_dict = request.features
+            try:
+                distance = features_dict["distance"]
+                speed = features_dict["speed"]
+                passenger_count = features_dict["passenger_count"]
+                # Prefer day_of_week, fallback to hour_of_day
+                if "day_of_week" in features_dict:
+                    fourth_feature = features_dict["day_of_week"]
+                elif "hour_of_day" in features_dict:
+                    fourth_feature = features_dict["hour_of_day"]
+                else:
+                    raise ValueError("Missing required feature: day_of_week or hour_of_day")
+            except KeyError as e:
+                logger.error(f"Missing required feature: {e}")
+                raise HTTPException(status_code=400, detail=f"Missing required feature: {e}")
+            except ValueError as e:
+                logger.error(str(e))
+                raise HTTPException(status_code=400, detail=str(e))
+
+            # Prepare input for model
+            input_array = np.array([[distance, speed, passenger_count, fourth_feature]])
 
             # Make prediction
-            prediction = model.predict(features)
+            prediction = model.predict(input_array)
 
             # Calculate confidence (example implementation)
             confidence = calculate_confidence(prediction)
@@ -117,7 +171,7 @@ async def predict(
             return PredictionResponse(
                 prediction=float(prediction[0]),
                 confidence=confidence,
-                model_version=model.version,
+                model_version=str(model_version),
                 processing_time=PREDICTION_LATENCY._sum.get()
             )
 
@@ -141,11 +195,11 @@ async def get_metadata(api_key: str = Depends(get_api_key)):
     """Return model metadata"""
     return {
         "model_name": config["model"]["name"],
-        "model_version": model.version,
+        "model_version": model_version,
         "features": list(config["features"]["numerical_columns"] +
                        config["features"]["categorical_columns"]),
-        "last_trained": model.metadata.get("training_timestamp"),
-        "performance_metrics": model.metadata.get("performance_metrics")
+        "last_trained": None,  # Could be added if tracked in model metadata
+        "performance_metrics": None  # Could be added if tracked in model metadata
     }
 
 @app.post("/feedback")

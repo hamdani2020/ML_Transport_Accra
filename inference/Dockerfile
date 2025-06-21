@@ -17,14 +17,20 @@ RUN apt-get update && \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
+# Copy requirements file early to leverage Docker cache
 COPY ../requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install large dependencies first (improves caching & stability)
+RUN pip install --timeout=300 --retries=10 --no-cache-dir \
+    torch tensorflow
 
-# Copy the application code
-COPY . .
+# Install remaining dependencies
+RUN pip install --timeout=300 --retries=10 --no-cache-dir -r requirements.txt
+
+# Copy application files
+COPY inference/inference_api.py .
+COPY configs/ ./configs/
+COPY models/ ./models/
 
 # Expose port
 EXPOSE 8000
