@@ -1,0 +1,22 @@
+artifact_path: /home/lusitech/AmaliTech/ML_Transport_Accra/mlruns/1/models/m-4d41a54b123c46069ec3bffb97df043d/artifacts
+flavors:
+  python_function:
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.tensorflow
+    python_version: 3.12.7
+  tensorflow:
+    code: null
+    data: data
+    keras_version: 2.19.0
+    model_type: keras
+    save_format: tf
+mlflow_version: 3.1.0
+model_id: m-4d41a54b123c46069ec3bffb97df043d
+model_size_bytes: 58482
+model_uuid: m-4d41a54b123c46069ec3bffb97df043d
+prompts: null
+run_id: c2273ac8d0584f8e8973d31cde8f4a3d
+utc_time_created: '2025-06-20 23:20:14.964891'

@@ -1,0 +1,46 @@
+metrics:
+  mae: 2.691280980483337
+  mape: !!python/object/apply:numpy._core.multiarray.scalar
+  - &id001 !!python/object/apply:numpy.dtype
+    args:
+    - f8
+    - false
+    - true
+    state: !!python/tuple
+    - 3
+    - <
+    - null
+    - null
+    - null
+    - -1
+    - -1
+    - 0
+  - !!binary |
+    glVVEVhZI0A=
+  r2: 0.8621709521093498
+  rmse: !!python/object/apply:numpy._core.multiarray.scalar
+  - *id001
+  - !!binary |
+    5CQ5ZWSwD0A=
+model_version: 1.0.0
+threshold_checks:
+  mae: true
+  r2: false
+  rmse: !!python/object/apply:numpy._core.multiarray.scalar
+  - !!python/object/apply:numpy.dtype
+    args:
+    - b1
+    - false
+    - true
+    state: !!python/tuple
+    - 3
+    - '|'
+    - null
+    - null
+    - null
+    - -1
+    - -1
+    - 0
+  - !!binary |
+    AQ==
+timestamp: '2025-06-21T22:48:07.895997'
