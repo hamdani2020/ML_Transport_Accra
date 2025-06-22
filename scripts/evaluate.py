@@ -155,6 +155,13 @@ def evaluate_model(config, model_version=None):
         if hasattr(y_pred, 'flatten'):
             y_pred = y_pred.flatten()
 
+        # Create predictions DataFrame for A/B testing
+        predictions_df = pd.DataFrame({
+            'actual': y_test,
+            'predicted': y_pred,
+            'error': np.abs(y_test - y_pred)
+        })
+
         # Calculate metrics
         metrics = calculate_metrics(y_test, y_pred)
         logger.info(f"Model metrics: {metrics}")
@@ -169,9 +176,18 @@ def evaluate_model(config, model_version=None):
         plot_prediction_error(y_test, y_pred, output_path)
         plot_residuals(y_test, y_pred, output_path)
 
+        # Save predictions for A/B testing
+        predictions_path = os.path.join(output_path, "predictions.parquet")
+        predictions_df.to_parquet(predictions_path, index=False)
+
         # Log metrics and artifacts to MLflow
         mlflow.log_metrics(metrics)
         mlflow.log_artifacts(output_path)
+
+        # Set tags for A/B testing
+        mlflow.set_tag("group", "treatment")  # Evaluation runs as treatment group
+        mlflow.set_tag("model_version", model_version)
+        mlflow.set_tag("experiment_type", "evaluation")
 
         # Check against thresholds (use reasonable defaults)
         thresholds = {

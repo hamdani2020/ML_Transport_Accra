@@ -145,6 +145,18 @@ def train_model(config):
         metrics = evaluate_model(model, X_test, y_test)
         logger.info(f"Model metrics: {metrics}")
 
+        # Make predictions on test set for A/B testing
+        y_pred = model.predict(X_test)
+        if hasattr(y_pred, 'flatten'):
+            y_pred = y_pred.flatten()
+
+        # Create predictions DataFrame for A/B testing
+        predictions_df = pd.DataFrame({
+            'actual': y_test,
+            'predicted': y_pred,
+            'error': np.abs(y_test - y_pred)
+        })
+
         # Log metrics and artifacts
         mlflow.log_metrics(metrics)
         mlflow.log_params({
@@ -167,6 +179,16 @@ def train_model(config):
             import pickle
             pickle.dump(scaler, f)
         mlflow.log_artifact(scaler_path)
+
+        # Save predictions for A/B testing
+        predictions_path = os.path.join("models", "predictions.parquet")
+        predictions_df.to_parquet(predictions_path, index=False)
+        mlflow.log_artifact(predictions_path)
+
+        # Set tags for A/B testing
+        mlflow.set_tag("group", "control")  # Default to control group
+        mlflow.set_tag("model_version", config["model"]["version"])
+        mlflow.set_tag("experiment_type", "training")
 
         # Register model in MLflow
         mlflow.tensorflow.log_model(

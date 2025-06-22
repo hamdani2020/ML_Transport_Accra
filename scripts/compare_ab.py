@@ -23,21 +23,59 @@ def load_experiment_data(experiment_id, config):
     Load A/B test data from MLflow experiment.
     Returns DataFrame with predictions and actual values for both models.
     """
+    # Set the tracking URI from config
+    mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
     client = mlflow.tracking.MlflowClient()
-    runs = client.search_runs(
-        experiment_id,
-        filter_string="tags.group IN ('control', 'treatment')"
-    )
+    
+    # Search in specific valid experiments for control and treatment runs
+    all_runs = []
+    
+    # Only search in valid experiments (0: Default, 3: Default_evaluation)
+    valid_experiment_ids = ["0", "3"]
+    
+    for exp_id in valid_experiment_ids:
+        try:
+            # Query for each group separately due to MLflow filter limitations
+            runs_control = client.search_runs(
+                exp_id,
+                filter_string="tags.group = 'control'"
+            )
+            runs_treatment = client.search_runs(
+                exp_id,
+                filter_string="tags.group = 'treatment'"
+            )
+            all_runs.extend(runs_control)
+            all_runs.extend(runs_treatment)
+            print(f"Found {len(runs_control)} control runs and {len(runs_treatment)} treatment runs in experiment {exp_id}")
+        except Exception as e:
+            print(f"Warning: Could not search experiment {exp_id}: {e}")
+            continue
 
+    print(f"Total runs found: {len(all_runs)}")
+    
     data = []
-    for run in runs:
-        predictions = pd.read_parquet(
-            f"{run.info.artifact_uri}/predictions.parquet"
-        )
-        predictions['group'] = run.data.tags['group']
-        predictions['model_version'] = run.data.tags['model_version']
-        data.append(predictions)
+    for run in all_runs:
+        try:
+            print(f"Processing run {run.info.run_id} with group {run.data.tags.get('group')}")
+            predictions_path = f"{run.info.artifact_uri}/predictions.parquet"
+            print(f"  Reading predictions from: {predictions_path}")
+            
+            predictions = pd.read_parquet(predictions_path)
+            print(f"  Successfully loaded predictions with {len(predictions)} rows")
+            
+            predictions['group'] = run.data.tags['group']
+            predictions['model_version'] = run.data.tags['model_version']
+            data.append(predictions)
+            print(f"  Added to data list. Total dataframes: {len(data)}")
+        except Exception as e:
+            print(f"Warning: Could not load predictions for run {run.info.run_id}: {e}")
+            continue
 
+    print(f"Final data list has {len(data)} dataframes")
+    if len(data) == 0:
+        print("No data found! Returning empty DataFrame")
+        return pd.DataFrame()
+    
     return pd.concat(data, ignore_index=True)
 
 def calculate_metrics(data, group):
@@ -93,6 +131,23 @@ def plot_comparison(data, output_path):
     plt.savefig(f"{output_path}/predictions_vs_actuals.png")
     plt.close()
 
+def convert_numpy_to_python(obj):
+    """Convert NumPy types to native Python types for YAML serialization."""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_to_python(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_to_python(item) for item in obj]
+    else:
+        return obj
+
 def generate_report(control_metrics, treatment_metrics, stat_tests, config, output_path):
     """Generate a detailed comparison report."""
     report = {
@@ -108,6 +163,9 @@ def generate_report(control_metrics, treatment_metrics, stat_tests, config, outp
             'effect_size_interpretation': interpret_effect_size(stat_tests['cohens_d'])
         }
     }
+
+    # Convert all NumPy values to native Python types
+    report = convert_numpy_to_python(report)
 
     # Save report
     with open(f"{output_path}/ab_test_report.yaml", 'w') as f:

@@ -292,6 +292,7 @@ prediction_data = {
         "distance": 5.2,
         "speed": 25.0,
         "passenger_count": 15
+        "day_of_week": 3
     }
 }
 

@@ -39,7 +39,7 @@ artifacts:
   current_model: "models/current"
   archive_dir: "models/archive"
   mlflow:
-    tracking_uri: "http://localhost:5000"
+    tracking_uri: "sqlite:////home/lusitech/AmaliTech/ML_Transport_Accra/mlflow.db"
     experiment_name: "transport_optimization"
 
 # API Configuration
@@ -90,9 +90,9 @@ rollback:
 
 # MLflow Tracking
 mlflow:
-  tracking_uri: "sqlite:///mlflow.db"
-  registry_uri: "sqlite:///mlflow.db"
-  experiment_name: "transport_prediction"
+  tracking_uri: "http://localhost:5000"
+  registry_uri: "http://localhost:5000"
+  experiment_name: "Default"
   tags:
     environment: "development"
     team: "ml-engineering"
