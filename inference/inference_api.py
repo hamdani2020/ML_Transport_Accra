@@ -1,7 +1,7 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import os
 import yaml
 import mlflow
@@ -11,6 +11,7 @@ from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 import logging
 from prometheus_client import Counter, Histogram, start_http_server
+import pandas as pd
 
 # Load configuration
 with open("configs/config.yaml") as f:
@@ -44,6 +45,18 @@ PREDICTION_LATENCY = Histogram(
 # Start Prometheus metrics server
 start_http_server(config["monitoring"]["prometheus_port"])
 
+# Load GTFS lookup tables at startup
+GTFS_LOOKUPS = {}
+def load_gtfs_lookups():
+    data_path = config["data"]["raw_dir"]
+    GTFS_LOOKUPS["routes"] = pd.read_csv(os.path.join(data_path, "routes.txt"))
+    GTFS_LOOKUPS["fare_attributes"] = pd.read_csv(os.path.join(data_path, "fare_attributes.txt"))
+    GTFS_LOOKUPS["fare_rules"] = pd.read_csv(os.path.join(data_path, "fare_rules.txt"))
+    GTFS_LOOKUPS["agency"] = pd.read_csv(os.path.join(data_path, "agency.txt"))
+    GTFS_LOOKUPS["stops"] = pd.read_csv(os.path.join(data_path, "stops.txt"))
+
+load_gtfs_lookups()
+
 class PredictionRequest(BaseModel):
     route_id: str
     stop_id: str
@@ -56,6 +69,15 @@ class PredictionResponse(BaseModel):
     confidence: float
     model_version: str
     processing_time: float
+    route_id: Optional[str] = None
+    route_name: Optional[str] = None
+    route_color: Optional[str] = None
+    fare_id: Optional[str] = None
+    fare_price: Optional[float] = None
+    agency_name: Optional[str] = None
+    first_stop_name: Optional[str] = None
+    last_stop_name: Optional[str] = None
+    input_summary: Dict[str, Any]
 
 def get_api_key(api_key_header: str = Security(api_key_header)) -> str:
     if api_key_header == os.environ.get("API_KEY"):
@@ -65,46 +87,40 @@ def get_api_key(api_key_header: str = Security(api_key_header)) -> str:
         detail="Invalid API Key"
     )
 
-def load_model():
-    """Load the latest production model from MLflow and return (model, version)"""
-    try:
-        mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
-        model_name = config["model"]["name"]
-        client = mlflow.tracking.MlflowClient()
-        # Find the production version
-        versions = client.search_model_versions(f"name='{model_name}'")
-        prod_version = None
-        for v in versions:
-            if v.current_stage == "Production":
-                prod_version = v.version
-                break
-        if prod_version is None:
-            logger.error("No model in Production stage found.")
-            raise HTTPException(status_code=500, detail="No model in Production stage.")
-        model = mlflow.pyfunc.load_model(model_uri=f"models:/{model_name}/Production")
-        logger.info(f"Loaded model: {model_name}, version: {prod_version}")
-        return model, prod_version
-    except Exception as e:
-        logger.error(f"Error loading model: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Model loading failed"
-        )
-
 # Global model and version
 model = None
 model_version = None
+model_name = config["model"]["name"]
+
+# Helper to get current production version from MLflow
+def get_production_model_version():
+    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
+    client = mlflow.tracking.MlflowClient()
+    versions = client.search_model_versions(f"name='{model_name}'")
+    for v in versions:
+        if v.current_stage == "Production":
+            return v.version
+    return None
+
+def load_model_if_needed():
+    global model, model_version
+    prod_version = get_production_model_version()
+    if model is None or str(model_version) != str(prod_version):
+        # Reload model
+        model = mlflow.pyfunc.load_model(model_uri=f"models:/{model_name}/Production")
+        model_version = prod_version
+        logger.info(f"Reloaded model: {model_name}, version: {model_version}")
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize the model and other resources on startup"""
-    global model, model_version
     try:
-        model, model_version = load_model()
+        load_model_if_needed()
         logger.info("API startup complete")
     except Exception as e:
         logger.error(f"Failed to load model on startup: {str(e)}")
         # Set model to None so the API can still start
+        global model, model_version
         model = None
         model_version = None
         logger.warning("API starting without model - predictions will fail")
@@ -136,8 +152,9 @@ async def predict(
 ):
     """Make predictions using the loaded model. Uses features: distance, speed, passenger_count, day_of_week (or hour_of_day)."""
     try:
+        # Hot-reload model if needed
+        load_model_if_needed()
         with PREDICTION_LATENCY.time():
-            # Extract required features
             features_dict = request.features
             try:
                 distance = features_dict["distance"]
@@ -168,11 +185,50 @@ async def predict(
 
             PREDICTION_COUNTER.inc()
 
+            # --- Real lookups for route, fare, agency, stop info ---
+            route_id = request.route_id
+            stop_id = request.stop_id
+            route_name = route_color = agency_name = fare_id = fare_price = first_stop_name = last_stop_name = None
+
+            # Route info
+            if route_id:
+                route_row = GTFS_LOOKUPS["routes"][GTFS_LOOKUPS["routes"]["route_id"] == route_id]
+                if not route_row.empty:
+                    route_name = route_row.iloc[0].get("route_long_name") or route_row.iloc[0].get("route_short_name")
+                    route_color = route_row.iloc[0].get("route_color")
+                    agency_id = route_row.iloc[0].get("agency_id")
+                    # Agency info
+                    agency_row = GTFS_LOOKUPS["agency"][GTFS_LOOKUPS["agency"]["agency_id"] == agency_id]
+                    if not agency_row.empty:
+                        agency_name = agency_row.iloc[0].get("agency_name")
+                # Fare info via fare_rules
+                fare_rule_row = GTFS_LOOKUPS["fare_rules"][GTFS_LOOKUPS["fare_rules"]["route_id"] == route_id]
+                if not fare_rule_row.empty:
+                    fare_id = fare_rule_row.iloc[0].get("fare_id")
+                    fare_attr_row = GTFS_LOOKUPS["fare_attributes"][GTFS_LOOKUPS["fare_attributes"]["fare_id"] == fare_id]
+                    if not fare_attr_row.empty:
+                        fare_price = fare_attr_row.iloc[0].get("price")
+            # Stop info
+            if stop_id:
+                stop_row = GTFS_LOOKUPS["stops"][GTFS_LOOKUPS["stops"]["stop_id"] == stop_id]
+                if not stop_row.empty:
+                    first_stop_name = stop_row.iloc[0].get("stop_name")
+                    last_stop_name = stop_row.iloc[0].get("stop_name")
+
             return PredictionResponse(
                 prediction=float(prediction[0]),
                 confidence=confidence,
                 model_version=str(model_version),
-                processing_time=PREDICTION_LATENCY._sum.get()
+                processing_time=PREDICTION_LATENCY._sum.get(),
+                route_id=route_id,
+                route_name=route_name,
+                route_color=route_color,
+                fare_id=fare_id,
+                fare_price=float(fare_price) if fare_price is not None else None,
+                agency_name=agency_name,
+                first_stop_name=first_stop_name,
+                last_stop_name=last_stop_name,
+                input_summary=features_dict
             )
 
     except Exception as e:
