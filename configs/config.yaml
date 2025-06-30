@@ -14,6 +14,7 @@ model:
 data:
   raw_dir: "data/raw"
   processed_dir: "data/processed"
+  models_dir: "models"
   train_file: "data/processed/train.parquet"
   val_file: "data/processed/val.parquet"
   test_file: "data/processed/test.parquet"
@@ -39,8 +40,9 @@ artifacts:
   current_model: "models/current"
   archive_dir: "models/archive"
   mlflow:
-    tracking_uri: "sqlite:////home/lusitech/AmaliTech/ML_Transport_Accra/mlflow.db"
+    tracking_uri: "sqlite:///mlflow.db"
     experiment_name: "transport_optimization"
+    model_name: "transport_predictor"
 
 # API Configuration
 api:
@@ -50,6 +52,7 @@ api:
   timeout: 30
   cors_origins: ["*"]
   rate_limit: 100
+  debug: false
 
 # Monitoring
 monitoring:
@@ -60,6 +63,8 @@ monitoring:
   performance_threshold:
     latency_ms: 100
     error_rate: 0.01
+  enable_prometheus: true
+  health_check_interval: 30  # seconds
 
 # A/B Testing
 ab_testing:
@@ -103,3 +108,99 @@ security:
   ssl_enabled: true
   rate_limiting: true
   max_requests_per_minute: 100
+
+# Route optimization settings
+route_optimization:
+  vehicle_capacity: 100
+  max_route_time: 120  # minutes
+  include_demand_estimation: true
+  distance_calculation_method: "haversine"
+  optimization_timeout: 300  # seconds
+
+# Schedule optimization settings
+schedule_optimization:
+  vehicle_capacity: 100
+  min_headway: 5  # minutes
+  max_headway: 30  # minutes
+  max_fleet_size: 50
+  service_hours:
+    start: 6  # 6 AM
+    end: 22   # 10 PM
+  time_periods:
+    - "morning_peak"
+    - "midday"
+    - "afternoon_peak"
+    - "evening"
+    - "night"
+
+# Demand prediction settings
+demand_prediction:
+  models:
+    - "random_forest"
+    - "xgboost"
+    - "lightgbm"
+    - "gradient_boosting"
+  test_size: 0.2
+  random_state: 42
+  cross_validation_folds: 5
+  feature_columns:
+    - "hour"
+    - "minute"
+    - "time_of_day"
+    - "time_period"
+    - "monday"
+    - "tuesday"
+    - "wednesday"
+    - "thursday"
+    - "friday"
+    - "saturday"
+    - "sunday"
+    - "route_type_encoded"
+    - "stop_sequence"
+    - "stop_lat"
+    - "stop_lon"
+
+# Visualization settings
+visualization:
+  map_center: [5.5600, -0.2057]  # Accra coordinates
+  zoom_level: 11
+  map_tiles: "OpenStreetMap"
+  colors:
+    major_stops: "red"
+    medium_stops: "orange"
+    regular_stops: "blue"
+  chart_width: 1000
+  chart_height: 600
+
+# GTFS processing settings
+gtfs:
+  required_files:
+    - "agency.txt"
+    - "routes.txt"
+    - "stops.txt"
+    - "trips.txt"
+    - "stop_times.txt"
+    - "calendar.txt"
+  optional_files:
+    - "shapes.txt"
+    - "fare_attributes.txt"
+    - "fare_rules.txt"
+  time_format: "%H:%M:%S"
+  date_format: "%Y%m%d"
+
+# Optimization constraints
+constraints:
+  max_route_distance: 50  # km
+  min_route_distance: 1   # km
+  max_stops_per_route: 50
+  min_stops_per_route: 2
+  max_travel_time: 120    # minutes
+  min_travel_time: 5      # minutes
+
+# Performance targets
+targets:
+  route_efficiency_improvement: 20  # percentage
+  fleet_utilization_rate: 80        # percentage
+  demand_prediction_accuracy: 85    # percentage
+  schedule_optimization_time: 300   # seconds
+  api_response_time: 2              # seconds

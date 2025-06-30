@@ -14,6 +14,7 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 from datetime import datetime
 import tensorflow as tf
+from sklearn.preprocessing import LabelEncoder
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -24,56 +25,90 @@ def load_config():
     with open("configs/config.yaml") as f:
         return yaml.safe_load(f)
 
+def preprocess_data_eval(df):
+    """Preprocess the data for evaluation with expanded feature set and encoding (matches train.py)."""
+    feature_columns = [
+        'distance_km',
+        'passenger_count',
+        'speed_kmh',
+        'route_type',
+        'fare_id',
+        'fare_price',
+        'agency_id',
+        'service_id',
+        'shape_id',
+        'first_stop_id',
+        'last_stop_id',
+        'first_stop_name',
+        'last_stop_name',
+        'route_color',
+        'route_short_name',
+        'route_long_name',
+        'agency_name',
+        'first_arrival_time',
+        'last_departure_time',
+    ]
+    available_columns = [col for col in feature_columns if col in df.columns]
+    X = df[available_columns].copy()
+    # Encode categorical features
+    for col in X.select_dtypes(include=['object']).columns:
+        le = LabelEncoder()
+        X[col] = le.fit_transform(X[col].astype(str))
+    # Convert time columns to minutes since midnight if present
+    def time_to_minutes(t):
+        try:
+            h, m, s = map(int, t.split(':'))
+            return h * 60 + m + s / 60
+        except:
+            return 0
+    for col in ['first_arrival_time', 'last_departure_time']:
+        if col in X.columns:
+            X[col] = X[col].astype(str).apply(time_to_minutes)
+    return X, available_columns
+
 def load_test_data(config):
     """Load and prepare test dataset using the same approach as training."""
     data_path = config["data"]["raw_dir"]
     logger.info(f"Loading test data from {data_path}")
-
     # Load GTFS files (same as training script)
-    trips_df = pd.read_csv(os.path.join(data_path, "trips.txt"))
+    agency_df = pd.read_csv(os.path.join(data_path, "agency.txt"))
+    calendar_df = pd.read_csv(os.path.join(data_path, "calendar.txt"))
+    fare_attributes_df = pd.read_csv(os.path.join(data_path, "fare_attributes.txt"))
+    fare_rules_df = pd.read_csv(os.path.join(data_path, "fare_rules.txt"))
     routes_df = pd.read_csv(os.path.join(data_path, "routes.txt"))
-    
-    # Create dataset (same as training script)
-    trips_with_routes = trips_df.merge(routes_df, on='route_id', how='left')
-    df = trips_with_routes.copy()
-    
-    # Create dummy target variable (same as training script)
+    shapes_df = pd.read_csv(os.path.join(data_path, "shapes.txt"))
+    stops_df = pd.read_csv(os.path.join(data_path, "stops.txt"))
+    stop_times_df = pd.read_csv(os.path.join(data_path, "stop_times.txt"))
+    trips_df = pd.read_csv(os.path.join(data_path, "trips.txt"))
+    # Merge as in train.py
+    trips_routes = trips_df.merge(routes_df, on='route_id', how='left', suffixes=('', '_route'))
+    trips_routes = trips_routes.merge(agency_df, on='agency_id', how='left', suffixes=('', '_agency'))
+    trips_routes = trips_routes.merge(calendar_df, on='service_id', how='left', suffixes=('', '_calendar'))
+    trips_routes = trips_routes.merge(fare_rules_df, on='route_id', how='left', suffixes=('', '_fare_rule'))
+    trips_routes = trips_routes.merge(fare_attributes_df, on='fare_id', how='left', suffixes=('', '_fare_attr'))
+    trips_routes = trips_routes.merge(shapes_df, on='shape_id', how='left', suffixes=('', '_shape'))
+    stop_times_grouped = stop_times_df.groupby('trip_id').agg({
+        'arrival_time': 'first',
+        'departure_time': 'last',
+        'stop_id': ['first', 'last']
+    })
+    stop_times_grouped.columns = ['first_arrival_time', 'last_departure_time', 'first_stop_id', 'last_stop_id']
+    stop_times_grouped = stop_times_grouped.reset_index()
+    trips_routes = trips_routes.merge(stop_times_grouped, on='trip_id', how='left')
+    stops_first = stops_df.rename(columns={col: f"first_{col}" for col in stops_df.columns if col != 'stop_id'})
+    stops_last = stops_df.rename(columns={col: f"last_{col}" for col in stops_df.columns if col != 'stop_id'})
+    trips_routes = trips_routes.merge(stops_first, left_on='first_stop_id', right_on='stop_id', how='left', suffixes=('', '_first'))
+    trips_routes = trips_routes.merge(stops_last, left_on='last_stop_id', right_on='stop_id', how='left', suffixes=('', '_last'))
+    # Dummy target and features (as in train.py)
     np.random.seed(42)
-    df['trip_duration_minutes'] = np.random.normal(30, 10, len(df))
-    df['trip_duration_minutes'] = df['trip_duration_minutes'].clip(5, 60)
-    
-    # Add dummy features (same as training script)
-    df['distance_km'] = np.random.normal(15, 8, len(df)).clip(1, 50)
-    df['passenger_count'] = np.random.poisson(20, len(df)).clip(1, 100)
-    df['speed_kmh'] = df['distance_km'] / (df['trip_duration_minutes'] / 60)
-    
-    # Convert categorical columns (only if they exist)
-    if 'route_type' in df.columns:
-        df['route_type'] = pd.Categorical(df['route_type']).codes
-    
-    # Use same features as training
-    feature_columns = ['distance_km', 'passenger_count', 'speed_kmh', 'route_type']
-    target_column = 'trip_duration_minutes'
-    
-    # Split for evaluation (use a different random seed for test set)
-    from sklearn.model_selection import train_test_split
-    X = df[feature_columns]
-    y = df[target_column]
-    
-    # Create test set (20% of data)
-    _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
-    
-    # Load and apply scaler
-    scaler_path = os.path.join("models", "scaler.pkl")
-    if os.path.exists(scaler_path):
-        with open(scaler_path, "rb") as f:
-            import pickle
-            scaler = pickle.load(f)
-        X_test_scaled = scaler.transform(X_test)
-        return X_test_scaled, y_test
-    else:
-        logger.warning("Scaler not found, using unscaled data")
-        return X_test, y_test
+    trips_routes['trip_duration_minutes'] = np.random.normal(30, 10, len(trips_routes)).clip(5, 60)
+    trips_routes['distance_km'] = np.random.normal(15, 8, len(trips_routes)).clip(1, 50)
+    trips_routes['passenger_count'] = np.random.poisson(20, len(trips_routes)).clip(1, 100)
+    trips_routes['speed_kmh'] = trips_routes['distance_km'] / (trips_routes['trip_duration_minutes'] / 60)
+    # Preprocess features
+    X, available_columns = preprocess_data_eval(trips_routes)
+    y = trips_routes['trip_duration_minutes']
+    return X, y
 
 def load_model(model_name, version):
     """Load model from MLflow registry or local file."""
@@ -151,15 +186,20 @@ def evaluate_model(config, model_version=None):
             y_pred = model.predict(X_test)
         else:
             y_pred = model.predict(X_test)
-        # Flatten predictions if needed
+        # Ensure y_pred is 1D
         if hasattr(y_pred, 'flatten'):
             y_pred = y_pred.flatten()
+        else:
+            y_pred = np.ravel(y_pred)
+
+        # Now create the Series
+        y_pred_series = pd.Series(y_pred, index=y_test.index)
 
         # Create predictions DataFrame for A/B testing
         predictions_df = pd.DataFrame({
             'actual': y_test,
-            'predicted': y_pred,
-            'error': np.abs(y_test - y_pred)
+            'predicted': y_pred_series,
+            'error': np.abs(y_test - y_pred_series)
         })
 
         # Calculate metrics

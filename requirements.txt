@@ -46,3 +46,21 @@ google-cloud-storage
 matplotlib
 seaborn
 plotly
+folium
+
+# Optimization Libraries
+ortools
+pulp
+
+# GTFS Data Processing
+gtfs-realtime-bindings
+partridge
+
+# Additional ML Libraries
+tensorflow
+xgboost
+lightgbm
+
+# Geospatial Analysis
+geopy
+rtree

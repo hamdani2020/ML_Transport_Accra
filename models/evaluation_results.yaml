@@ -1,5 +1,5 @@
 metrics:
-  mae: 2.783994463069545
+  mae: 425756.11233548704
   mape: !!python/object/apply:numpy._core.multiarray.scalar
   - &id001 !!python/object/apply:numpy.dtype
     args:
@@ -16,16 +16,16 @@ metrics:
     - -1
     - 0
   - !!binary |
-    P7WNnWXlI0A=
-  r2: 0.853005181129234
+    cTO0n85ROUE=
+  r2: -2402601052.986273
   rmse: !!python/object/apply:numpy._core.multiarray.scalar
   - *id001
   - !!binary |
-    qK63X+VcEEA=
-model_version: '27'
+    +raX3WXBHUE=
+model_version: '31'
 threshold_checks:
-  mae: true
-  r2: false
+  mae: false
+  r2: true
   rmse: !!python/object/apply:numpy._core.multiarray.scalar
   - !!python/object/apply:numpy.dtype
     args:
@@ -42,5 +42,5 @@ threshold_checks:
     - -1
     - 0
   - !!binary |
-    AQ==
-timestamp: '2025-06-22T03:20:17.267371'
+    AA==
+timestamp: '2025-06-22T18:53:21.752662'

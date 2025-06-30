@@ -1,0 +1,57 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Accra Public Transport Analysis Dashboard</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .header { text-align: center; margin-bottom: 30px; }
+                .section { margin-bottom: 40px; }
+                .chart-container { width: 100%; height: 500px; }
+                iframe { width: 100%; height: 100%; border: none; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🚌 Accra Public Transport Efficiency Analysis</h1>
+                <p>Comprehensive analysis of transport routes, demand patterns, and optimization results</p>
+            </div>
+        
+            <div class="section">
+                <h2>🗺️ Transport Network Map</h2>
+                <div class="chart-container">
+                    <iframe src="data/processed/network_map.html"></iframe>
+                </div>
+            </div>
+            
+                <div class="section">
+                    <h2>🔥 Passenger Demand Heatmap</h2>
+                    <div class="chart-container">
+                        <iframe src="data/processed/demand_heatmap.html"></iframe>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>📈 Daily Demand Patterns</h2>
+                    <div class="chart-container">
+                        <iframe src="data/processed/time_series_demand.html"></iframe>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>⚡ Route Optimization Results</h2>
+                    <div class="chart-container">
+                        <iframe src="data/processed/route_efficiency.html"></iframe>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>📊 Optimization Comparison</h2>
+                    <div class="chart-container">
+                        <iframe src="data/processed/optimization_comparison.html"></iframe>
+                    </div>
+                </div>
+                
+        </body>
+        </html>
+        

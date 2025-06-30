@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator
-from airflow.operators.bash_operator import BashOperator
+from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.utils.dates import days_ago
 import yaml
@@ -25,7 +25,7 @@ default_args = {
     'owner': 'ml_team',
     'depends_on_past': False,
     'start_date': days_ago(1),
-    'email': ['hamdanialhassangandi2020@gmail.com'],
+    'email': ['ml-team@example.com'],
     'email_on_failure': True,
     'email_on_retry': False,
     'retries': 1,
