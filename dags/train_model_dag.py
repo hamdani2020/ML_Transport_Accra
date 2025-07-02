@@ -1,22 +1,32 @@
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.standard.operators.bash import BashOperator
-from airflow.providers.standard.sensors.filesystem import FileSensor
+from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
+from airflow.sensors.filesystem import FileSensor
 import yaml
-import sys
+import subprocess
+import logging
 import os
 from pathlib import Path
 
+# Find project root by looking for a known marker (e.g., 'configs/config.yaml')
+def find_project_root(marker='configs/config.yaml', start=Path(__file__).resolve()):
+    for parent in [start] + list(start.parents):
+        if (parent / marker).exists():
+            return parent
+    raise FileNotFoundError(f"Could not find project root with marker: {marker}")
+
+PROJECT_ROOT = find_project_root()
+CONFIG_PATH = PROJECT_ROOT / 'configs' / 'config.yaml'
+
 # Load configuration
-config_path = "/home/lusitech/AmaliTech/ML_Transport_Accra/configs/config.yaml"
-with open(config_path) as f:
+with open(CONFIG_PATH) as f:
     config = yaml.safe_load(f)
 
 default_args = {
     'owner': 'ml_team',
     'depends_on_past': False,
-    'start_date': datetime(2024, 1, 1),  # Use direct datetime instead of days_ago
+    'start_date': datetime(2024, 1, 1),
     'email': ['hamdanialhassangandi2020@gmail.com'],
     'email_on_failure': True,
     'email_on_retry': False,
@@ -28,24 +38,23 @@ dag = DAG(
     'transport_model_training',
     default_args=default_args,
     description='End-to-end training pipeline for transport prediction model',
-    schedule=timedelta(days=1),  # Daily training - use 'schedule' instead of 'schedule_interval'
+    schedule=timedelta(days=1),
     catchup=False,
     tags=['ml', 'transport']
 )
 
-# Check if new data is available
+# Task: Check for new data
 check_data = FileSensor(
     task_id='check_new_data',
-    filepath='/home/lusitech/AmaliTech/ML_Transport_Accra/data/raw/new_data_flag.txt',
-    poke_interval=300,  # Check every 5 minutes
-    timeout=3600,  # Timeout after 1 hour
+    filepath=str(PROJECT_ROOT / 'data' / 'raw' / 'new_data_flag.txt'),
+    poke_interval=300,
+    timeout=3600,
     dag=dag
 )
 
-# Data preprocessing and validation
+# Task: Preprocess data
 def preprocess_data():
-    """Preprocess and validate new data."""
-    # Implementation here
+    # Implement your logic here
     pass
 
 preprocess = PythonOperator(
@@ -54,31 +63,20 @@ preprocess = PythonOperator(
     dag=dag
 )
 
-# Model training
+# Task: Train model
 def train():
-    """Train the model using preprocessed data."""
-    import subprocess
-    import logging
-    
     logger = logging.getLogger(__name__)
-    project_root = "/home/lusitech/AmaliTech/ML_Transport_Accra"
-    
     try:
-        cmd = ["python", f"{project_root}/scripts/train.py", "--config", f"{project_root}/configs/config.yaml"]
+        cmd = [
+            "python", str(PROJECT_ROOT / 'scripts' / 'train.py'),
+            "--config", str(CONFIG_PATH)
+        ]
         logger.info(f"Running training command: {' '.join(cmd)}")
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=project_root)
-        logger.info("Training completed successfully")
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=str(PROJECT_ROOT))
         logger.info(f"Training output: {result.stdout}")
-        
         return {"status": "success", "output": result.stdout}
-        
     except subprocess.CalledProcessError as e:
-        logger.error(f"Training failed: {e}")
-        logger.error(f"Error output: {e.stderr}")
-        raise
-    except Exception as e:
-        logger.error(f"Training failed: {str(e)}")
+        logger.error(f"Training failed: {e.stderr}")
         raise
 
 training = PythonOperator(
@@ -87,44 +85,25 @@ training = PythonOperator(
     dag=dag
 )
 
-# Model evaluation
+# Task: Evaluate model
 def evaluate():
-    """Evaluate the trained model."""
-    import subprocess
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    project_root = "/home/lusitech/AmaliTech/ML_Transport_Accra"
-    
+    import mlflow
+    mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
+    client = mlflow.tracking.MlflowClient()
+    model_name = config['model']['name']
+
     try:
-        # Get the latest model version
-        import mlflow
-        mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
-        client = mlflow.tracking.MlflowClient()
-        
-        model_name = config['model']['name']
         versions = client.search_model_versions(f"name='{model_name}'")
-        if versions:
-            latest_version = max([int(m.version) for m in versions])
-        else:
-            latest_version = "latest"
-        
-        cmd = ["python", f"{project_root}/scripts/evaluate.py", "--model-version", str(latest_version)]
-        logger.info(f"Running evaluation command: {' '.join(cmd)}")
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=project_root)
-        logger.info("Evaluation completed successfully")
-        logger.info(f"Evaluation output: {result.stdout}")
-        
+        latest_version = max([int(m.version) for m in versions]) if versions else "latest"
+
+        cmd = [
+            "python", str(PROJECT_ROOT / 'scripts' / 'evaluate.py'),
+            "--model-version", str(latest_version)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=str(PROJECT_ROOT))
         return {"status": "success", "output": result.stdout, "model_version": latest_version}
-        
     except subprocess.CalledProcessError as e:
-        logger.error(f"Evaluation failed: {e}")
-        logger.error(f"Error output: {e.stderr}")
-        raise
-    except Exception as e:
-        logger.error(f"Evaluation failed: {str(e)}")
-        raise
+        raise RuntimeError(f"Evaluation failed: {e.stderr}")
 
 evaluation = PythonOperator(
     task_id='evaluate_model',
@@ -132,68 +111,33 @@ evaluation = PythonOperator(
     dag=dag
 )
 
-# A/B Testing
+# Task: Run A/B test
 def run_ab_test(**context):
-    """Run A/B test comparison between control and treatment models."""
-    try:
-        import mlflow
-        import subprocess
-        import logging
-        
-        logger = logging.getLogger(__name__)
-        project_root = "/home/lusitech/AmaliTech/ML_Transport_Accra"
-        
-        # Set up MLflow tracking
-        mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
-        client = mlflow.tracking.MlflowClient()
-        
-        # Get experiment ID for the Default experiment
-        experiment = client.get_experiment_by_name("Default")
-        if not experiment:
-            logger.warning("Default experiment not found, creating it")
-            experiment_id = client.create_experiment("Default")
-        else:
-            experiment_id = experiment.experiment_id
-        
-        logger.info(f"Running A/B test on experiment ID: {experiment_id}")
-        
-        # Create output directory for A/B test results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = f"{project_root}/models/ab_test_results_{timestamp}"
-        os.makedirs(output_path, exist_ok=True)
-        
-        # Run the A/B comparison script
-        cmd = [
-            "python", f"{project_root}/scripts/compare_ab.py",
-            "--experiment-id", str(experiment_id),
-            "--output-path", output_path
-        ]
-        
-        logger.info(f"Running command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=project_root)
-        
-        logger.info("A/B test completed successfully")
-        logger.info(f"Results saved to: {output_path}")
-        
-        # Log the results to MLflow
-        with mlflow.start_run(experiment_id=experiment_id, run_name="ab_test_comparison"):
-            mlflow.log_artifacts(output_path)
-            mlflow.set_tag("experiment_type", "ab_test")
-            mlflow.set_tag("output_path", output_path)
-        
-        return {
-            "status": "success",
-            "output_path": output_path,
-            "experiment_id": experiment_id
-        }
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"A/B test failed with error: {e}")
-        logger.error(f"Error output: {e.stderr}")
-        raise
-    except Exception as e:
-        logger.error(f"A/B test failed: {str(e)}")
-        raise
+    import mlflow
+
+    mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
+    client = mlflow.tracking.MlflowClient()
+
+    experiment = client.get_experiment_by_name("Default")
+    experiment_id = experiment.experiment_id if experiment else client.create_experiment("Default")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = PROJECT_ROOT / 'models' / f"ab_test_results_{timestamp}"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "python", str(PROJECT_ROOT / 'scripts' / 'compare_ab.py'),
+        "--experiment-id", str(experiment_id),
+        "--output-path", str(output_path)
+    ]
+    subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=str(PROJECT_ROOT))
+
+    with mlflow.start_run(experiment_id=experiment_id, run_name="ab_test_comparison"):
+        mlflow.log_artifacts(str(output_path))
+        mlflow.set_tag("experiment_type", "ab_test")
+        mlflow.set_tag("output_path", str(output_path))
+
+    return {"status": "success", "output_path": str(output_path), "experiment_id": experiment_id}
 
 ab_test = PythonOperator(
     task_id='run_ab_test',
@@ -201,68 +145,30 @@ ab_test = PythonOperator(
     dag=dag
 )
 
-# Model promotion to staging (conditional on A/B test results)
+# Task: Promote model to staging
 def promote_to_staging(**context):
-    """Promote latest model to staging if A/B test shows significant improvement."""
-    try:
-        import mlflow
-        import json
-        import yaml
-        from pathlib import Path
-        
-        mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
-        client = mlflow.tracking.MlflowClient()
-        model_name = config['model']['name']
+    import mlflow
 
-        # Get A/B test results from previous task
-        ab_test_result = context['task_instance'].xcom_pull(task_ids='run_ab_test')
-        output_path = ab_test_result['output_path']
-        
-        # Read A/B test report
-        report_path = Path(output_path) / "ab_test_report.yaml"
-        if not report_path.exists():
-            print(f"A/B test report not found at {report_path}")
-            return False
-            
-        with open(report_path, 'r') as f:
-            ab_report = yaml.safe_load(f)
-        
-        # Check if treatment is significantly better than control
-        significant_improvement = ab_report['conclusions']['significant_difference']
-        p_value = ab_report['statistical_tests']['p_value']
-        significance_level = config['ab_testing']['significance_level']
-        
-        print(f"A/B Test Results:")
-        print(f"  P-value: {p_value}")
-        print(f"  Significance level: {significance_level}")
-        print(f"  Significant improvement: {significant_improvement}")
-        
-        # Only promote if there's significant improvement
-        if not significant_improvement:
-            print("A/B test shows no significant improvement. Model will not be promoted.")
-            return False
-        
-        # Get the latest version number
-        versions = client.search_model_versions(f"name='{model_name}'")
-        if not versions:
-            print(f"No versions found for model: {model_name}")
-            return False
-        latest_version = max([int(m.version) for m in versions])
-        print(f"Promoting model {model_name} version {latest_version} to Staging")
+    mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
+    client = mlflow.tracking.MlflowClient()
+    model_name = config['model']['name']
 
-        # Transition model to staging
-        client.transition_model_version_stage(
-            name=model_name,
-            version=latest_version,
-            stage="Staging"
-        )
-        
-        print("Model successfully promoted to Staging")
-        return True
-        
-    except Exception as e:
-        print(f"Failed to promote model: {str(e)}")
+    ab_test_result = context['task_instance'].xcom_pull(task_ids='run_ab_test')
+    output_path = Path(ab_test_result['output_path'])
+    report_path = output_path / 'ab_test_report.yaml'
+
+    if not report_path.exists():
         return False
+
+    with open(report_path) as f:
+        ab_report = yaml.safe_load(f)
+
+    if not ab_report['conclusions']['significant_difference']:
+        return False
+
+    latest_version = max([int(m.version) for m in client.search_model_versions(f"name='{model_name}'")])
+    client.transition_model_version_stage(name=model_name, version=latest_version, stage="Staging")
+    return True
 
 promote_staging = PythonOperator(
     task_id='promote_to_staging',
@@ -270,160 +176,42 @@ promote_staging = PythonOperator(
     dag=dag
 )
 
-# Notification task
+# Task: Send notification
 def send_notification(**context):
-    """Send notification with A/B test results and promotion decision."""
-    try:
-        import yaml
-        from pathlib import Path
-        from airflow.utils.email import send_email
-        
-        # Get A/B test results
-        ab_test_result = context['task_instance'].xcom_pull(task_ids='run_ab_test')
-        output_path = ab_test_result['output_path']
-        
-        # Get promotion decision
-        promotion_result = context['task_instance'].xcom_pull(task_ids='promote_to_staging')
-        
-        # Read A/B test report
-        report_path = Path(output_path) / "ab_test_report.yaml"
-        ab_report = None
-        
-        if report_path.exists():
-            try:
-                with open(report_path, 'r') as f:
-                    ab_report = yaml.safe_load(f)
-            except yaml.YAMLError as e:
-                print(f"Warning: Could not parse YAML report: {e}")
-                # Try to read the file as text and extract basic info
-                try:
-                    with open(report_path, 'r') as f:
-                        content = f.read()
-                        print(f"Report file content (first 500 chars): {content[:500]}")
-                except Exception as read_error:
-                    print(f"Could not read report file: {read_error}")
-        
-        if ab_report:
-            # Extract key metrics
-            try:
-                control_mae = ab_report['metrics']['control']['mae']
-                treatment_mae = ab_report['metrics']['treatment']['mae']
-                p_value = ab_report['statistical_tests']['p_value']
-                significant = ab_report['conclusions']['significant_difference']
-                
-                # Create notification message
-                subject = f"ML Pipeline A/B Test Results - {'PROMOTED' if promotion_result else 'NOT PROMOTED'}"
-                
-                html_content = f"""
-                <html>
-                <body>
-                <h2>🚀 ML Pipeline A/B Test Results</h2>
-                
-                <h3>📊 Performance Comparison:</h3>
-                <ul>
-                    <li><strong>Control Model MAE:</strong> {control_mae:.4f}</li>
-                    <li><strong>Treatment Model MAE:</strong> {treatment_mae:.4f}</li>
-                    <li><strong>Improvement:</strong> {((control_mae - treatment_mae) / control_mae * 100):.2f}%</li>
-                </ul>
-                
-                <h3>📈 Statistical Results:</h3>
-                <ul>
-                    <li><strong>P-value:</strong> {p_value:.4f}</li>
-                    <li><strong>Significant Improvement:</strong> {'✅ Yes' if significant else '❌ No'}</li>
-                    <li><strong>Model Promoted:</strong> {'✅ Yes' if promotion_result else '❌ No'}</li>
-                </ul>
-                
-                <h3>📁 Results Location:</h3>
-                <p>{output_path}</p>
-                
-                <hr>
-                <p><em>This is an automated notification from your ML Transport Accra pipeline.</em></p>
-                </body>
-                </html>
-                """
-                
-                # Send email
-                send_email(
-                    to=context['dag'].default_args['email'],
-                    subject=subject,
-                    html_content=html_content
-                )
-                
-                print(f"Email notification sent to: {context['dag'].default_args['email']}")
-                
-            except KeyError as e:
-                error_subject = "ML Pipeline A/B Test Results - ERROR"
-                error_content = f"""
-                <html>
-                <body>
-                <h2>⚠️ ML Pipeline A/B Test Results - ERROR</h2>
-                <p>Could not extract all metrics from report: {e}</p>
-                <p><strong>Model Promoted:</strong> {'Yes' if promotion_result else 'No'}</p>
-                <p><strong>Results saved to:</strong> {output_path}</p>
-                </body>
-                </html>
-                """
-                
-                send_email(
-                    to=context['dag'].default_args['email'],
-                    subject=error_subject,
-                    html_content=error_content
-                )
-                
-                print(f"Error notification email sent to: {context['dag'].default_args['email']}")
-        else:
-            error_subject = "ML Pipeline A/B Test Results - ERROR"
-            error_content = f"""
-            <html>
-            <body>
-            <h2>⚠️ ML Pipeline A/B Test Results - ERROR</h2>
-            <p>Could not read A/B test report</p>
-            <p><strong>Model Promoted:</strong> {'Yes' if promotion_result else 'No'}</p>
-            <p><strong>Results saved to:</strong> {output_path}</p>
-            </body>
-            </html>
-            """
-            
-            send_email(
-                to=context['dag'].default_args['email'],
-                subject=error_subject,
-                html_content=error_content
-            )
-            
-            print(f"Error notification email sent to: {context['dag'].default_args['email']}")
-        
-        return {
-            "status": "notification_sent",
-            "ab_test_results": ab_report,
-            "promotion_decision": promotion_result,
-            "email_sent": True
-        }
-        
-    except Exception as e:
-        error_message = f"Failed to send notification: {str(e)}"
-        print(error_message)
-        
-        # Try to send error notification email
-        try:
-            from airflow.utils.email import send_email
-            send_email(
-                to=context['dag'].default_args['email'],
-                subject="ML Pipeline - Notification Error",
-                html_content=f"""
-                <html>
-                <body>
-                <h2>❌ ML Pipeline Notification Error</h2>
-                <p>Error: {str(e)}</p>
-                <p>Please check the Airflow logs for more details.</p>
-                </body>
-                </html>
-                """
-            )
-            print(f"Error notification email sent to: {context['dag'].default_args['email']}")
-        except Exception as email_error:
-            print(f"Failed to send error notification email: {email_error}")
-        
-        return {"status": "notification_failed", "error": str(e)}
+    from airflow.utils.email import send_email
+
+    ab_test_result = context['task_instance'].xcom_pull(task_ids='run_ab_test')
+    promotion_result = context['task_instance'].xcom_pull(task_ids='promote_to_staging')
+    report_path = Path(ab_test_result['output_path']) / 'ab_test_report.yaml'
+
+    if report_path.exists():
+        with open(report_path) as f:
+            ab_report = yaml.safe_load(f)
+
+        control_mae = ab_report['metrics']['control']['mae']
+        treatment_mae = ab_report['metrics']['treatment']['mae']
+        p_value = ab_report['statistical_tests']['p_value']
+        significant = ab_report['conclusions']['significant_difference']
+
+        subject = f"ML Pipeline A/B Test Results - {'PROMOTED' if promotion_result else 'NOT PROMOTED'}"
+        html_content = f"""
+        <h2>ML A/B Test Summary</h2>
+        <ul>
+            <li>Control MAE: {control_mae:.4f}</li>
+            <li>Treatment MAE: {treatment_mae:.4f}</li>
+            <li>Improvement: {(control_mae - treatment_mae) / control_mae * 100:.2f}%</li>
+            <li>P-value: {p_value:.4f}</li>
+            <li>Significant: {'✅' if significant else '❌'}</li>
+            <li>Promoted to Staging: {'✅' if promotion_result else '❌'}</li>
+        </ul>
+        <p>Results Path: {ab_test_result['output_path']}</p>
+        """
+    else:
+        subject = "ML Pipeline A/B Test Report Missing"
+        html_content = "<p>A/B test report not found. Promotion may not have occurred.</p>"
+
+    send_email(to=context['dag'].default_args['email'], subject=subject, html_content=html_content)
+    return {"status": "notification_sent"}
 
 notification = PythonOperator(
     task_id='send_notification',
@@ -431,14 +219,13 @@ notification = PythonOperator(
     dag=dag
 )
 
-# Cleanup task
+# Task: Cleanup
 cleanup = BashOperator(
     task_id='cleanup',
     bash_command='rm -f {{ params.data_path }}/new_data_flag.txt',
-    params={'data_path': '/home/lusitech/AmaliTech/ML_Transport_Accra/data/raw'},
+    params={'data_path': str(PROJECT_ROOT / 'data' / 'raw')},
     dag=dag
 )
 
-# Define task dependencies
+# Task dependencies
 check_data >> preprocess >> training >> evaluation >> ab_test >> promote_staging >> notification >> cleanup
-
