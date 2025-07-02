@@ -1,8 +1,8 @@
-# 🚌 Accra Public Transport Efficiency Analysis
+# Accra Public Transport Efficiency Analysis
 
 An AI-powered system for analyzing and optimizing public transport routes in Accra, Ghana. This project provides actionable insights for route optimization, demand prediction, and schedule optimization to improve transport efficiency and accessibility.
 
-## 🎯 Project Objectives
+## Project Objectives
 
 - **Route Optimization**: Optimize transport routes using OR-Tools to reduce travel time and distance
 - **Demand Prediction**: Predict passenger demand using machine learning models
@@ -10,7 +10,7 @@ An AI-powered system for analyzing and optimizing public transport routes in Acc
 - **Resource Allocation**: Efficiently allocate vehicles and resources
 - **Visualization**: Interactive maps and dashboards for analysis
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 ML_Transport_Accra/
@@ -38,7 +38,7 @@ ML_Transport_Accra/
 └── requirements.txt       # Python dependencies
 ```
 
-## 🚀 Features
+## Features
 
 ### 1. Route Optimization
 - **OR-Tools Integration**: Uses Google's OR-Tools for vehicle routing problems
@@ -75,7 +75,7 @@ ML_Transport_Accra/
 - **MLflow**: Machine learning experiment tracking and model management
 - **Docker Integration**: Containerized services for easy deployment
 
-## 📊 Dataset
+## Dataset
 
 The project uses the **GTFS (General Transit Feed Specification)** dataset for Accra, Ghana, collected in May and June 2015. The dataset includes:
 
@@ -88,7 +88,7 @@ The project uses the **GTFS (General Transit Feed Specification)** dataset for A
 - **shapes.txt**: Route geometries
 - **fare_attributes.txt**: Fare information
 
-## 🛠️ Installation
+## Installation
 
 ### Prerequisites
 - Python 3.8+
@@ -122,7 +122,7 @@ ls data/raw/
 # Should show: agency.txt, routes.txt, stops.txt, trips.txt, stop_times.txt, etc.
 ```
 
-## 🐳 Docker Setup with Airflow and MLflow
+## Docker Setup with Airflow and MLflow
 
 This project includes Docker Compose configuration to run Apache Airflow and MLflow services for workflow orchestration and ML experiment tracking.
 
