@@ -30,6 +30,11 @@ ML_Transport_Accra/
 │   ├── raw/               # GTFS data files
 │   └── processed/         # Processed data and results
 ├── models/                # Trained ML models
+├── dags/                  # Airflow DAGs
+├── logs/                  # Airflow logs
+├── plugins/               # Airflow plugins
+├── mlruns/                # MLflow artifacts
+├── docker-compose.yml     # Docker services configuration
 └── requirements.txt       # Python dependencies
 ```
 
@@ -65,6 +70,11 @@ ML_Transport_Accra/
 - **Real-time Results**: Live access to optimization results
 - **Comprehensive Dashboard**: Web-based analysis interface
 
+### 6. Workflow Orchestration
+- **Apache Airflow**: Automated pipeline orchestration and scheduling
+- **MLflow**: Machine learning experiment tracking and model management
+- **Docker Integration**: Containerized services for easy deployment
+
 ## 📊 Dataset
 
 The project uses the **GTFS (General Transit Feed Specification)** dataset for Accra, Ghana, collected in May and June 2015. The dataset includes:
@@ -84,6 +94,7 @@ The project uses the **GTFS (General Transit Feed Specification)** dataset for A
 - Python 3.8+
 - pip
 - Git
+- Docker and Docker Compose (for containerized setup)
 
 ### Setup
 
@@ -110,6 +121,105 @@ Ensure the GTFS files are present in `data/raw/`:
 ls data/raw/
 # Should show: agency.txt, routes.txt, stops.txt, trips.txt, stop_times.txt, etc.
 ```
+
+## 🐳 Docker Setup with Airflow and MLflow
+
+This project includes Docker Compose configuration to run Apache Airflow and MLflow services for workflow orchestration and ML experiment tracking.
+
+### Services Overview
+
+- **Apache Airflow**: Workflow orchestration and scheduling
+  - Web UI: http://localhost:8080
+  - Scheduler for automated pipeline execution
+  - PostgreSQL backend for metadata storage
+
+- **MLflow**: Machine learning experiment tracking
+  - Tracking UI: http://localhost:5000
+  - Model registry and artifact storage
+  - SQLite backend for experiment tracking
+
+### Quick Start
+
+1. **Initialize Airflow database**
+```bash
+docker-compose run airflow-webserver airflow db init
+```
+
+2. **Create Airflow admin user (optional)**
+```bash
+docker-compose run airflow-webserver airflow users create \
+  --username admin --password admin --firstname Admin --lastname User \
+  --role Admin --email admin@example.com
+```
+
+3. **Start all services**
+```bash
+docker-compose up -d
+```
+
+4. **Access the services**
+   - **Airflow UI**: http://localhost:8080 (admin/admin)
+   - **MLflow UI**: http://localhost:5000
+
+### Service Management
+
+```bash
+# Start services in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Restart specific service
+docker-compose restart airflow-webserver
+
+# Remove all containers and volumes
+docker-compose down -v
+```
+
+### Airflow DAGs
+
+Place your Airflow DAGs in the `dags/` directory. They will be automatically loaded by the Airflow scheduler.
+
+Example DAG structure:
+```
+dags/
+├── transport_optimization_dag.py
+├── model_training_dag.py
+└── data_processing_dag.py
+```
+
+### MLflow Integration
+
+The MLflow service is configured with:
+- **Backend Store**: SQLite database (`mlflow.db`)
+- **Artifact Store**: Local file system (`mlruns/`)
+- **Port**: 5000
+
+Use MLflow in your Python scripts:
+```python
+import mlflow
+
+# Set tracking URI
+mlflow.set_tracking_uri("http://localhost:5000")
+
+# Start experiment
+with mlflow.start_run():
+    # Your ML code here
+    mlflow.log_metric("accuracy", 0.95)
+    mlflow.log_model(model, "model")
+```
+
+### Customization
+
+Edit `docker-compose.yml` to customize:
+- Service ports
+- Environment variables
+- Volume mounts
+- Resource limits
 
 ## 🚀 Usage
 
