@@ -1,0 +1,29 @@
+[2025-07-02T14:13:46.687+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: transport_model_training.train_model manual__2025-07-02T14:13:43.612761+00:00 [queued]>
+[2025-07-02T14:13:46.694+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: transport_model_training.train_model manual__2025-07-02T14:13:43.612761+00:00 [queued]>
+[2025-07-02T14:13:46.695+0000] {taskinstance.py:2170} INFO - Starting attempt 1 of 2
+[2025-07-02T14:13:46.706+0000] {taskinstance.py:2191} INFO - Executing <Task(PythonOperator): train_model> on 2025-07-02 14:13:43.612761+00:00
+[2025-07-02T14:13:46.711+0000] {standard_task_runner.py:60} INFO - Started process 353 to run task
+[2025-07-02T14:13:46.714+0000] {standard_task_runner.py:87} INFO - Running: ['***', 'tasks', 'run', 'transport_model_training', 'train_model', 'manual__2025-07-02T14:13:43.612761+00:00', '--job-id', '23', '--raw', '--subdir', 'DAGS_FOLDER/train_model_dag.py', '--cfg-path', '/tmp/tmptgi88ewn']
+[2025-07-02T14:13:46.716+0000] {standard_task_runner.py:88} INFO - Job 23: Subtask train_model
+[2025-07-02T14:13:46.755+0000] {task_command.py:423} INFO - Running <TaskInstance: transport_model_training.train_model manual__2025-07-02T14:13:43.612761+00:00 [running]> on host dc9b84bddae2
+[2025-07-02T14:13:46.826+0000] {taskinstance.py:2480} INFO - Exporting env vars: AIRFLOW_CTX_DAG_EMAIL='hamdanialhassangandi2020@gmail.com' AIRFLOW_CTX_DAG_OWNER='ml_team' AIRFLOW_CTX_DAG_ID='transport_model_training' AIRFLOW_CTX_TASK_ID='train_model' AIRFLOW_CTX_EXECUTION_DATE='2025-07-02T14:13:43.612761+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2025-07-02T14:13:43.612761+00:00'
+[2025-07-02T14:13:46.827+0000] {train_model_dag.py:74} INFO - Running training command: python /opt/***/scripts/train.py --config /opt/***/configs/config.yaml
+[2025-07-02T14:13:46.862+0000] {train_model_dag.py:79} ERROR - Training failed: python: can't open file '/opt/***/scripts/train.py': [Errno 2] No such file or directory
+
+[2025-07-02T14:13:46.864+0000] {taskinstance.py:2698} ERROR - Task failed with exception
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.8/site-packages/airflow/models/taskinstance.py", line 433, in _execute_task
+    result = execute_callable(context=context, **execute_callable_kwargs)
+  File "/home/airflow/.local/lib/python3.8/site-packages/airflow/operators/python.py", line 199, in execute
+    return_value = self.execute_callable()
+  File "/home/airflow/.local/lib/python3.8/site-packages/airflow/operators/python.py", line 216, in execute_callable
+    return self.python_callable(*self.op_args, **self.op_kwargs)
+  File "/opt/airflow/dags/train_model_dag.py", line 75, in train
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=str(PROJECT_ROOT))
+  File "/usr/local/lib/python3.8/subprocess.py", line 516, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['python', '/opt/airflow/scripts/train.py', '--config', '/opt/airflow/configs/config.yaml']' returned non-zero exit status 2.
+[2025-07-02T14:13:46.873+0000] {taskinstance.py:1138} INFO - Marking task as UP_FOR_RETRY. dag_id=transport_model_training, task_id=train_model, execution_date=20250702T141343, start_date=20250702T141346, end_date=20250702T141346
+[2025-07-02T14:13:46.887+0000] {standard_task_runner.py:107} ERROR - Failed to execute job 23 for task train_model (Command '['python', '/opt/airflow/scripts/train.py', '--config', '/opt/airflow/configs/config.yaml']' returned non-zero exit status 2.; 353)
+[2025-07-02T14:13:46.926+0000] {local_task_job_runner.py:234} INFO - Task exited with return code 1
+[2025-07-02T14:13:46.954+0000] {taskinstance.py:3280} INFO - 0 downstream tasks scheduled from follow-on schedule check
