@@ -1,0 +1,66 @@
+# Core ML Libraries
+numpy
+pandas
+scikit-learn
+# torch
+transformers
+# tensorflow
+
+# Data Processing
+pyarrow
+geopandas
+shapely
+
+# MLOps & Experiment Tracking
+mlflow
+prefect
+wandb
+
+# API & Serving
+fastapi
+uvicorn
+pydantic
+
+# Testing & Development
+pytest
+pytest-cov
+black
+flake8
+mypy
+
+# Configuration & Logging
+pyyaml
+python-dotenv
+structlog
+
+# Monitoring & Metrics
+prometheus-client
+grafana-api
+
+# Cloud & Container
+docker
+boto3
+google-cloud-storage
+
+# Visualization
+matplotlib
+seaborn
+plotly
+folium
+
+# Optimization Libraries
+ortools
+pulp
+
+# GTFS Data Processing
+gtfs-realtime-bindings
+partridge
+
+# Additional ML Libraries
+tensorflow
+xgboost
+lightgbm
+
+# Geospatial Analysis
+geopy
+rtree

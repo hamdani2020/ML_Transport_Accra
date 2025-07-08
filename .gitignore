@@ -10,3 +10,4 @@ __pycache__/
 *.pywz
 mlruns/
 models/
+venv

@@ -221,7 +221,7 @@ Edit `docker-compose.yml` to customize:
 - Volume mounts
 - Resource limits
 
-## 🚀 Usage
+## Usage
 
 ### 1. Start the API Service
 
