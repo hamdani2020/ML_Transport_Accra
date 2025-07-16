@@ -1,0 +1,213 @@
+# Terraform Variables Example File
+# Copy this file to terraform.tfvars and customize the values for your deployment
+# This file contains example values for all configurable variables
+
+# ===========================
+# General Configuration
+# ===========================
+
+# Name of the project (must be lowercase with hyphens only)
+project_name = "ml-transport-accra"
+
+# Environment (dev, staging, prod)
+environment = "dev"
+
+# AWS region where resources will be deployed
+aws_region = "us-east-1"
+
+# Owner of the infrastructure
+owner = "ml-team"
+
+# Cost center for billing purposes
+cost_center = "engineering"
+
+# ===========================
+# VPC and Networking
+# ===========================
+
+# VPC CIDR block
+vpc_cidr = "10.0.0.0/16"
+
+# Public subnet CIDR blocks (all resources will be placed in public subnets)
+public_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24"]
+
+# Enable VPN gateway (set to false for development)
+enable_vpn_gateway = false
+
+# ===========================
+# Security Configuration
+# ===========================
+
+# CIDR blocks allowed to access the application
+# For development, you can use ["0.0.0.0/0"] but restrict for production
+# Example: ["203.0.113.0/24", "198.51.100.0/24"] for specific IP ranges
+allowed_cidr_blocks = ["0.0.0.0/0"]
+
+# AWS key pair name for SSH access to instances
+# Create this key pair in AWS Console first, then specify the name here
+# Leave empty if you don't need SSH access
+ssh_key_name = "my-transport-key"
+
+# ===========================
+# EC2 Instance Configuration
+# ===========================
+
+# EC2 instance type for the application
+# Recommended: t3.large for dev, m5.xlarge for prod
+instance_type = "t3.large"
+
+# Auto Scaling Group configuration
+min_instance_count     = 1
+max_instance_count     = 3
+desired_instance_count = 1
+
+# Enable detailed monitoring (disabled to reduce costs)
+enable_detailed_monitoring = false
+
+# Health check configuration
+health_check_type          = "ELB"
+health_check_grace_period  = 300
+
+# ===========================
+# Application Ports
+# ===========================
+
+# Port for the main FastAPI application
+application_port = 8000
+
+# Port for Airflow web interface
+airflow_port = 8082
+
+# Port for MLflow web interface
+mlflow_port = 5000
+
+# Docker Compose version to install
+docker_compose_version = "2.20.0"
+
+# ===========================
+# S3 Configuration
+# ===========================
+
+# Enable versioning on S3 buckets
+s3_enable_versioning = true
+
+# Enable server-side encryption
+s3_enable_encryption = true
+
+# Lifecycle management (days)
+s3_lifecycle_expiration_days   = 365
+s3_transition_to_ia_days       = 30
+s3_transition_to_glacier_days  = 90
+
+# Cross-region replication (for production environments)
+s3_enable_cross_region_replication = false
+s3_replication_destination_region  = "us-west-2"
+
+# ===========================
+# Load Balancer & SSL
+# ===========================
+
+# Enable Application Load Balancer
+enable_load_balancer = true
+
+# SSL certificate ARN (leave empty for HTTP only)
+# Get this from AWS Certificate Manager
+ssl_certificate_arn = ""
+
+# Domain name for the application (optional)
+domain_name = ""
+
+# ===========================
+# Database Configuration
+# ===========================
+
+# Enable RDS PostgreSQL for Airflow (uses SQLite by default)
+enable_rds = false
+
+# RDS configuration (only used if enable_rds = true)
+db_instance_class           = "db.t3.micro"
+db_allocated_storage        = 20
+db_backup_retention_period  = 7
+
+# ===========================
+# Monitoring & Logging (CloudWatch Disabled)
+# ===========================
+
+# CloudWatch logs disabled to reduce costs
+# Logs are stored locally and synced to S3
+
+# Enable SNS alerts for monitoring
+enable_sns_alerts = true
+
+# Email address for alerts (required if enable_sns_alerts = true)
+alert_email = "your-email@example.com"
+
+# ===========================
+# Backup Configuration
+# ===========================
+
+# Enable automated backups using AWS Backup
+enable_backup = true
+
+# Backup schedule (cron expression)
+backup_schedule = "cron(0 2 * * ? *)"  # Daily at 2 AM UTC
+
+# Backup retention period in days
+backup_retention_days = 30
+
+# ===========================
+# Cost Optimization
+# ===========================
+
+# Use Spot instances for cost savings (not recommended for production)
+enable_spot_instances = false
+
+# Instance types for Spot instances
+spot_instance_types = ["t3.large", "t3.xlarge", "m5.large", "m5.xlarge"]
+
+# Maximum price for Spot instances (USD per hour)
+spot_max_price = "0.10"
+
+# ===========================
+# Access Control
+# ===========================
+
+# Enable SSH access to instances
+enable_ssh_access = true
+
+# Enable public internet access to the application
+enable_public_access = true
+
+# Create a bastion host for secure access (recommended for production)
+create_bastion_host = false
+
+# ===========================
+# Example Production Configuration
+# ===========================
+
+# For production deployment, consider these values:
+# environment = "prod"
+# instance_type = "m5.xlarge"
+# min_instance_count = 2
+# max_instance_count = 6
+# desired_instance_count = 2
+# enable_rds = true
+# allowed_cidr_blocks = ["your-office-ip/32"]
+# enable_spot_instances = false
+# ssl_certificate_arn = "arn:aws:acm:region:account:certificate/certificate-id"
+# domain_name = "transport.yourdomain.com"
+
+# ===========================
+# Example Development Configuration
+# ===========================
+
+# For development deployment, these values work well:
+# environment = "dev"
+# instance_type = "t3.medium"
+# min_instance_count = 1
+# max_instance_count = 2
+# desired_instance_count = 1
+# enable_rds = false
+# allowed_cidr_blocks = ["0.0.0.0/0"]
+# enable_spot_instances = true
+# enable_backup = false

@@ -11,3 +11,4 @@ __pycache__/
 mlruns/
 models/
 venv
+logs/

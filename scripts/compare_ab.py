@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -13,9 +14,20 @@ import mlflow
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_config():
+def load_config(config_path=None):
     """Load configuration from YAML file."""
-    with open("configs/config.yaml") as f:
+    if config_path is None:
+        # Try to find the project root and config file
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)  # Go up one level from scripts/
+        config_path = os.path.join(project_root, "configs", "config.yaml")
+
+    if not os.path.exists(config_path):
+        # Fallback to relative path
+        config_path = "configs/config.yaml"
+
+    logger.info(f"Loading config from: {config_path}")
+    with open(config_path) as f:
         return yaml.safe_load(f)
 
 def load_experiment_data(experiment_id, config):
@@ -23,60 +35,124 @@ def load_experiment_data(experiment_id, config):
     Load A/B test data from MLflow experiment.
     Returns DataFrame with predictions and actual values for both models.
     """
-    # Set the tracking URI from config
-    mlflow.set_tracking_uri(config['mlflow']['tracking_uri'])
-    client = mlflow.tracking.MlflowClient()
-    
-    # Search in specific valid experiments for control and treatment runs
-    all_runs = []
-    
-    # Only search in valid experiments (0: Default, 3: Default_evaluation)
-    valid_experiment_ids = ["0", "3"]
-    
-    for exp_id in valid_experiment_ids:
-        try:
-            # Query for each group separately due to MLflow filter limitations
-            runs_control = client.search_runs(
-                exp_id,
-                filter_string="tags.group = 'control'"
-            )
-            runs_treatment = client.search_runs(
-                exp_id,
-                filter_string="tags.group = 'treatment'"
-            )
-            all_runs.extend(runs_control)
-            all_runs.extend(runs_treatment)
-            print(f"Found {len(runs_control)} control runs and {len(runs_treatment)} treatment runs in experiment {exp_id}")
-        except Exception as e:
-            print(f"Warning: Could not search experiment {exp_id}: {e}")
-            continue
+    try:
+        # Set the tracking URI from config
+        tracking_uri = config['mlflow']['tracking_uri']
+        mlflow.set_tracking_uri(tracking_uri)
+        client = mlflow.tracking.MlflowClient()
+        logger.info(f"Connected to MLflow at: {tracking_uri}")
 
-    print(f"Total runs found: {len(all_runs)}")
-    
-    data = []
-    for run in all_runs:
-        try:
-            print(f"Processing run {run.info.run_id} with group {run.data.tags.get('group')}")
-            predictions_path = f"{run.info.artifact_uri}/predictions.parquet"
-            print(f"  Reading predictions from: {predictions_path}")
-            
-            predictions = pd.read_parquet(predictions_path)
-            print(f"  Successfully loaded predictions with {len(predictions)} rows")
-            
-            predictions['group'] = run.data.tags['group']
-            predictions['model_version'] = run.data.tags['model_version']
-            data.append(predictions)
-            print(f"  Added to data list. Total dataframes: {len(data)}")
-        except Exception as e:
-            print(f"Warning: Could not load predictions for run {run.info.run_id}: {e}")
-            continue
+        # Set up environment for artifact access
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        artifact_root = os.path.join(project_root, "mlflow_shared")
+        os.environ["MLFLOW_DEFAULT_ARTIFACT_ROOT"] = os.path.abspath(artifact_root)
+        os.environ["MLFLOW_ARTIFACT_ROOT"] = os.path.abspath(artifact_root)
 
-    print(f"Final data list has {len(data)} dataframes")
-    if len(data) == 0:
-        print("No data found! Returning empty DataFrame")
+        # Search in multiple experiments for control and treatment runs
+        all_runs = []
+        valid_experiment_ids = ["0", "1"]  # Default and Default_evaluation
+
+        for exp_id in valid_experiment_ids:
+            try:
+                # Get all runs from the experiment
+                runs = client.search_runs([exp_id])
+                logger.info(f"Found {len(runs)} total runs in experiment {exp_id}")
+
+                # Filter by group tags
+                control_runs = [r for r in runs if r.data.tags.get('group') == 'control']
+                treatment_runs = [r for r in runs if r.data.tags.get('group') == 'treatment']
+
+                all_runs.extend(control_runs)
+                all_runs.extend(treatment_runs)
+                logger.info(f"Experiment {exp_id}: {len(control_runs)} control, {len(treatment_runs)} treatment runs")
+
+            except Exception as e:
+                logger.warning(f"Could not search experiment {exp_id}: {e}")
+                continue
+
+        logger.info(f"Total runs found: {len(all_runs)}")
+
+        # Try to load data from local files first, then MLflow artifacts
+        data = []
+        models_dir = os.path.join(project_root, "models")
+
+        for run in all_runs:
+            try:
+                group = run.data.tags.get('group', 'unknown')
+                run_id = run.info.run_id
+                logger.info(f"Processing run {run_id} with group {group}")
+
+                predictions_df = None
+
+                # Try to load from local models directory first
+                if group == 'training' or group == 'control':
+                    # Look for training predictions files
+                    prediction_files = [f for f in os.listdir(models_dir)
+                                      if f.startswith("predictions_") and f.endswith(".parquet")]
+                    if prediction_files:
+                        latest_file = sorted(prediction_files)[-1]
+                        local_path = os.path.join(models_dir, latest_file)
+                        try:
+                            predictions_df = pd.read_parquet(local_path)
+                            logger.info(f"Loaded control data from local file: {local_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to load from local file {local_path}: {e}")
+
+                elif group == 'evaluation' or group == 'treatment':
+                    # Look for evaluation results
+                    eval_dirs = [d for d in os.listdir(models_dir)
+                               if d.startswith("evaluation_") and os.path.isdir(os.path.join(models_dir, d))]
+                    if eval_dirs:
+                        latest_eval_dir = sorted(eval_dirs)[-1]
+                        eval_predictions_path = os.path.join(models_dir, latest_eval_dir, "predictions.parquet")
+                        if os.path.exists(eval_predictions_path):
+                            try:
+                                predictions_df = pd.read_parquet(eval_predictions_path)
+                                logger.info(f"Loaded treatment data from: {eval_predictions_path}")
+                            except Exception as e:
+                                logger.warning(f"Failed to load from {eval_predictions_path}: {e}")
+
+                # If local loading failed, try MLflow artifacts
+                if predictions_df is None:
+                    try:
+                        artifacts = client.list_artifacts(run_id)
+                        prediction_artifacts = [a for a in artifacts if 'predictions' in a.path.lower()]
+                        if prediction_artifacts:
+                            artifact_path = prediction_artifacts[0].path
+                            local_artifact_path = client.download_artifacts(run_id, artifact_path)
+                            predictions_df = pd.read_parquet(local_artifact_path)
+                            logger.info(f"Loaded from MLflow artifact: {artifact_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load from MLflow artifacts for run {run_id}: {e}")
+
+                # Add to dataset if we successfully loaded predictions
+                if predictions_df is not None and not predictions_df.empty:
+                    predictions_df['group'] = group
+                    predictions_df['model_version'] = run.data.tags.get('model_version', '1.0.0')
+                    predictions_df['run_id'] = run_id
+                    data.append(predictions_df)
+                    logger.info(f"Added {len(predictions_df)} rows from run {run_id}")
+                else:
+                    logger.warning(f"No predictions found for run {run_id}")
+
+            except Exception as e:
+                logger.warning(f"Failed to process run {run.info.run_id}: {e}")
+                continue
+
+        logger.info(f"Final data list has {len(data)} dataframes")
+        if len(data) == 0:
+            logger.error("No A/B test data found! Cannot perform comparison.")
+            return pd.DataFrame()
+
+        combined_data = pd.concat(data, ignore_index=True)
+        logger.info(f"Combined dataset has {len(combined_data)} rows")
+        logger.info(f"Groups found: {combined_data['group'].value_counts().to_dict()}")
+        return combined_data
+
+    except Exception as e:
+        logger.error(f"Failed to load experiment data: {e}")
         return pd.DataFrame()
-    
-    return pd.concat(data, ignore_index=True)
 
 def calculate_metrics(data, group):
     """Calculate key metrics for a specific group."""
@@ -188,55 +264,129 @@ def main():
     parser.add_argument("--experiment-id", required=True, help="MLflow experiment ID")
     parser.add_argument("--output-path", default="models/ab_test_results",
                        help="Path to save comparison results")
+    parser.add_argument("--config", default="configs/config.yaml", help="Path to config file")
     args = parser.parse_args()
 
-    # Load configuration
-    config = load_config()
+    try:
+        # Load configuration
+        config = load_config(args.config)
 
-    # Create output directory
-    import os
-    os.makedirs(args.output_path, exist_ok=True)
+        # Create output directory
+        import os
+        os.makedirs(args.output_path, exist_ok=True)
 
-    # Load experiment data
-    data = load_experiment_data(args.experiment_id, config)
+        # Load experiment data
+        data = load_experiment_data(args.experiment_id, config)
 
-    # Calculate error metrics
-    data['error'] = np.abs(data['actual'] - data['predicted'])
+        # Check if we have enough data for A/B testing
+        if data.empty:
+            logger.error("No data found for A/B testing. Exiting.")
+            # Create a minimal report indicating no data
+            minimal_report = {
+                'timestamp': datetime.now().isoformat(),
+                'status': 'failed',
+                'reason': 'no_data_found',
+                'metrics': {'control': {}, 'treatment': {}},
+                'statistical_tests': {'p_value': 1.0, 'cohens_d': 0.0},
+                'conclusions': {'significant_difference': False}
+            }
+            with open(f"{args.output_path}/ab_test_report.yaml", 'w') as f:
+                yaml.dump(minimal_report, f)
+            return
 
-    # Split data by group
-    control_data = data[data['group'] == 'control']
-    treatment_data = data[data['group'] == 'treatment']
+        # Calculate error metrics
+        data['error'] = np.abs(data['actual'] - data['predicted'])
 
-    # Calculate metrics for each group
-    control_metrics = calculate_metrics(data, 'control')
-    treatment_metrics = calculate_metrics(data, 'treatment')
+        # Split data by group
+        control_data = data[data['group'] == 'control']
+        treatment_data = data[data['group'] == 'treatment']
 
-    # Perform statistical tests
-    stat_tests = perform_statistical_tests(control_data, treatment_data)
+        # Check if we have both groups
+        if control_data.empty:
+            logger.warning("No control group data found, using training data as control")
+            control_data = data[data['group'].isin(['control', 'training'])]
 
-    # Generate visualizations
-    plot_comparison(data, args.output_path)
+        if treatment_data.empty:
+            logger.warning("No treatment group data found, using evaluation data as treatment")
+            treatment_data = data[data['group'].isin(['treatment', 'evaluation'])]
 
-    # Generate and save report
-    generate_report(control_metrics, treatment_metrics, stat_tests, config, args.output_path)
+        if control_data.empty or treatment_data.empty:
+            logger.error("Insufficient data for A/B testing (missing control or treatment group)")
+            # Create a report indicating insufficient data
+            insufficient_report = {
+                'timestamp': datetime.now().isoformat(),
+                'status': 'failed',
+                'reason': 'insufficient_data',
+                'data_summary': {
+                    'total_rows': len(data),
+                    'control_rows': len(control_data),
+                    'treatment_rows': len(treatment_data),
+                    'groups_found': data['group'].unique().tolist()
+                },
+                'conclusions': {'significant_difference': False}
+            }
+            with open(f"{args.output_path}/ab_test_report.yaml", 'w') as f:
+                yaml.dump(insufficient_report, f)
+            return
 
-    # Log results summary
-    logger.info("A/B Test Results Summary:")
-    logger.info(f"Control Model MAE: {control_metrics['mae']:.4f}")
-    logger.info(f"Treatment Model MAE: {treatment_metrics['mae']:.4f}")
-    logger.info(f"Improvement: {((control_metrics['mae'] - treatment_metrics['mae']) / control_metrics['mae'] * 100):.2f}%")
-    logger.info(f"Statistical Significance (p-value): {stat_tests['p_value']:.4f}")
-    logger.info(f"Effect Size (Cohen's d): {stat_tests['cohens_d']:.4f}")
+        # Calculate metrics for each group
+        control_metrics = calculate_metrics(data, control_data['group'].iloc[0])
+        treatment_metrics = calculate_metrics(data, treatment_data['group'].iloc[0])
 
-    # Log results to MLflow
-    with mlflow.start_run(experiment_id=args.experiment_id, run_name="ab_test_comparison"):
-        mlflow.log_metrics({
-            "control_mae": control_metrics['mae'],
-            "treatment_mae": treatment_metrics['mae'],
-            "p_value": stat_tests['p_value'],
-            "cohens_d": stat_tests['cohens_d']
-        })
-        mlflow.log_artifacts(args.output_path)
+        # Perform statistical tests
+        stat_tests = perform_statistical_tests(control_data, treatment_data)
+
+        # Generate visualizations
+        try:
+            plot_comparison(data, args.output_path)
+        except Exception as e:
+            logger.warning(f"Failed to generate plots: {e}")
+
+        # Generate and save report
+        generate_report(control_metrics, treatment_metrics, stat_tests, config, args.output_path)
+
+        # Log results summary
+        logger.info("A/B Test Results Summary:")
+        logger.info(f"Control Model MAE: {control_metrics['mae']:.4f}")
+        logger.info(f"Treatment Model MAE: {treatment_metrics['mae']:.4f}")
+        improvement = ((control_metrics['mae'] - treatment_metrics['mae']) / control_metrics['mae'] * 100)
+        logger.info(f"Improvement: {improvement:.2f}%")
+        logger.info(f"Statistical Significance (p-value): {stat_tests['p_value']:.4f}")
+        logger.info(f"Effect Size (Cohen's d): {stat_tests['cohens_d']:.4f}")
+
+        # Log results to MLflow with error handling
+        try:
+            with mlflow.start_run(experiment_id=args.experiment_id, run_name="ab_test_comparison"):
+                mlflow.log_metrics({
+                    "control_mae": control_metrics['mae'],
+                    "treatment_mae": treatment_metrics['mae'],
+                    "improvement_percent": improvement,
+                    "p_value": stat_tests['p_value'],
+                    "cohens_d": stat_tests['cohens_d']
+                })
+                try:
+                    mlflow.log_artifacts(args.output_path)
+                except Exception as e:
+                    logger.warning(f"Failed to log artifacts to MLflow: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to log results to MLflow: {e}")
+
+        logger.info("✅ A/B test comparison completed successfully")
+
+    except Exception as e:
+        logger.error(f"❌ A/B test comparison failed: {e}")
+        # Create error report
+        error_report = {
+            'timestamp': datetime.now().isoformat(),
+            'status': 'error',
+            'error': str(e),
+            'conclusions': {'significant_difference': False}
+        }
+        import os
+        os.makedirs(args.output_path, exist_ok=True)
+        with open(f"{args.output_path}/ab_test_report.yaml", 'w') as f:
+            yaml.dump(error_report, f)
+        raise
 
 if __name__ == "__main__":
     main()

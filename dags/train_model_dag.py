@@ -128,14 +128,44 @@ def run_ab_test(**context):
     cmd = [
         "python", str(PROJECT_ROOT / 'scripts' / 'compare_ab.py'),
         "--experiment-id", str(experiment_id),
-        "--output-path", str(output_path)
+        "--output-path", str(output_path),
+        "--config", str(CONFIG_PATH)
     ]
-    subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=str(PROJECT_ROOT))
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=str(PROJECT_ROOT))
 
-    with mlflow.start_run(experiment_id=experiment_id, run_name="ab_test_comparison"):
-        mlflow.log_artifacts(str(output_path))
-        mlflow.set_tag("experiment_type", "ab_test")
-        mlflow.set_tag("output_path", str(output_path))
+    # Log to MLflow with comprehensive error handling
+    try:
+        with mlflow.start_run(experiment_id=experiment_id, run_name="ab_test_comparison"):
+            # Try to log individual files instead of entire directory
+            try:
+                report_file = output_path / "ab_test_report.yaml"
+                if report_file.exists():
+                    mlflow.log_artifact(str(report_file))
+
+                # Try to log any plots if they exist
+                for plot_file in output_path.glob("*.png"):
+                    try:
+                        mlflow.log_artifact(str(plot_file))
+                    except Exception as e:
+                        import logging
+                        logging.warning(f"Failed to log plot {plot_file}: {e}")
+
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to log A/B test artifacts to MLflow: {e}")
+
+            # Set tags with error handling
+            try:
+                mlflow.set_tag("experiment_type", "ab_test")
+                mlflow.set_tag("output_path", str(output_path))
+                mlflow.set_tag("status", "completed")
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to set MLflow tags: {e}")
+
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to create MLflow run for A/B test: {e}")
 
     return {"status": "success", "output_path": str(output_path), "experiment_id": experiment_id}
 

@@ -9,6 +9,7 @@ model:
     epochs: 100
     early_stopping_patience: 5
     validation_split: 0.2
+  artifacts_dir: "/opt/airflow/mlruns/models"
 
 # Data Paths
 data:
@@ -64,7 +65,7 @@ monitoring:
     latency_ms: 100
     error_rate: 0.01
   enable_prometheus: true
-  health_check_interval: 30  # seconds
+  health_check_interval: 30 # seconds
 
 # A/B Testing
 ab_testing:
@@ -84,7 +85,7 @@ evaluation:
   threshold:
     mae: 5.0
     rmse: 7.0
-    r2: 0.8
+    r2: 0.95
 
 # Rollback Configuration
 rollback:
@@ -95,8 +96,8 @@ rollback:
 
 # MLflow Tracking
 mlflow:
-  tracking_uri: "http://localhost:5000"
-  registry_uri: "http://localhost:5000"
+  tracking_uri: "http://mlflow:5000"
+  registry_uri: "http://mlflow:5000"
   experiment_name: "Default"
   tags:
     environment: "development"
@@ -112,20 +113,20 @@ security:
 # Route optimization settings
 route_optimization:
   vehicle_capacity: 100
-  max_route_time: 120  # minutes
+  max_route_time: 120 # minutes
   include_demand_estimation: true
   distance_calculation_method: "haversine"
-  optimization_timeout: 300  # seconds
+  optimization_timeout: 300 # seconds
 
 # Schedule optimization settings
 schedule_optimization:
   vehicle_capacity: 100
-  min_headway: 5  # minutes
-  max_headway: 30  # minutes
+  min_headway: 5 # minutes
+  max_headway: 30 # minutes
   max_fleet_size: 50
   service_hours:
-    start: 6  # 6 AM
-    end: 22   # 10 PM
+    start: 6 # 6 AM
+    end: 22 # 10 PM
   time_periods:
     - "morning_peak"
     - "midday"
@@ -162,7 +163,7 @@ demand_prediction:
 
 # Visualization settings
 visualization:
-  map_center: [5.5600, -0.2057]  # Accra coordinates
+  map_center: [5.5600, -0.2057] # Accra coordinates
   zoom_level: 11
   map_tiles: "OpenStreetMap"
   colors:
@@ -190,17 +191,17 @@ gtfs:
 
 # Optimization constraints
 constraints:
-  max_route_distance: 50  # km
-  min_route_distance: 1   # km
+  max_route_distance: 50 # km
+  min_route_distance: 1 # km
   max_stops_per_route: 50
   min_stops_per_route: 2
-  max_travel_time: 120    # minutes
-  min_travel_time: 5      # minutes
+  max_travel_time: 120 # minutes
+  min_travel_time: 5 # minutes
 
 # Performance targets
 targets:
-  route_efficiency_improvement: 20  # percentage
-  fleet_utilization_rate: 80        # percentage
-  demand_prediction_accuracy: 85    # percentage
-  schedule_optimization_time: 300   # seconds
-  api_response_time: 2              # seconds
+  route_efficiency_improvement: 20 # percentage
+  fleet_utilization_rate: 80 # percentage
+  demand_prediction_accuracy: 85 # percentage
+  schedule_optimization_time: 300 # seconds
+  api_response_time: 2 # seconds

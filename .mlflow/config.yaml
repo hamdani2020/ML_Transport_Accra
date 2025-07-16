@@ -1,0 +1,3 @@
+default_artifact_root: /home/user/capstone/ML_Transport_Accra/mlruns
+registry_uri: http://mlflow:5000
+tracking_uri: http://mlflow:5000

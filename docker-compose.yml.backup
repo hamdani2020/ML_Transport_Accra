@@ -2,10 +2,9 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: Dockerfile
-  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+  user: "${AIRFLOW_UID:-50000}:0"
   env_file:
     - .env
-    - .env.mlflow
   environment:
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
@@ -14,8 +13,8 @@ x-airflow-common: &airflow-common
     - AIRFLOW__CORE__LOAD_EXAMPLES=false
     - AIRFLOW__WEBSERVER__SECRET_KEY=mysecret
     - MLFLOW_TRACKING_URI=http://mlflow:5000
-    - MLFLOW_DEFAULT_ARTIFACT_ROOT=/opt/airflow/mlflow_shared
-    - MLFLOW_ARTIFACT_ROOT=/opt/airflow/mlflow_shared
+    - MLFLOW_DEFAULT_ARTIFACT_ROOT=/opt/airflow/mlruns
+    - MLFLOW_ARTIFACT_ROOT=/opt/airflow/mlruns
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
@@ -24,7 +23,6 @@ x-airflow-common: &airflow-common
     - ./data:/opt/airflow/data
     - ./scripts:/opt/airflow/scripts
     - ./mlruns:/opt/airflow/mlruns
-    - mlflow_data:/opt/airflow/mlflow_shared
   depends_on:
     - postgres
 
@@ -66,9 +64,8 @@ services:
     command:
       - -c
       - |
-        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins /opt/airflow/mlruns /opt/airflow/mlflow_shared
-        chown -R "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}" /opt/airflow/{logs,dags,plugins,mlruns}
-        chmod -R 777 /opt/airflow/{mlruns,mlflow_shared}
+        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
+        chown -R "${AIRFLOW_UID}:0" /opt/airflow/{logs,dags,plugins}
         airflow db init && \
         airflow users create \
           --username admin \
@@ -80,21 +77,22 @@ services:
     restart: on-failure
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.9.2
+    image: python:3.10
+    user: "1000:1000"
     environment:
-      - MLFLOW_BACKEND_STORE_URI=sqlite:////data/mlflow.db
-      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/data/artifacts
-      - MLFLOW_ARTIFACT_ROOT=/data/artifacts
+      - MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlruns
+      - MLFLOW_ARTIFACT_ROOT=/mlruns
     command: >
-      sh -c "mkdir -p /data/artifacts &&
-             chmod -R 777 /data &&
-             mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////data/mlflow.db --default-artifact-root /data/artifacts"
+      sh -c "pip install mlflow[extras] &&
+             mkdir -p /mlruns &&
+             chmod 777 /mlruns &&
+             mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlruns"
     volumes:
-      - mlflow_data:/data
+      - ./mlruns:/mlruns
+      - ./mlflow.db:/mlflow.db
     ports:
       - "5000:5000"
 
 volumes:
   postgres-db-volume:
-  mlflow_data:
-    driver: local

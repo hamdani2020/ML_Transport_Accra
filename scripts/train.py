@@ -3,6 +3,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import yaml
 import argparse
 import logging
+import tempfile
 import mlflow
 import pandas as pd
 import numpy as np
@@ -17,9 +18,20 @@ from sklearn.preprocessing import LabelEncoder
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_config():
+def load_config(config_path=None):
     """Load configuration from YAML file."""
-    with open("configs/config.yaml") as f:
+    if config_path is None:
+        # Try to find the project root and config file
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)  # Go up one level from scripts/
+        config_path = os.path.join(project_root, "configs", "config.yaml")
+
+    if not os.path.exists(config_path):
+        # Fallback to relative path
+        config_path = "configs/config.yaml"
+
+    logger.info(f"Loading config from: {config_path}")
+    with open(config_path) as f:
         return yaml.safe_load(f)
 
 def load_data(config):
@@ -182,89 +194,158 @@ def evaluate_model(model, X_test, y_test):
 
 def train_model(config):
     """Main training pipeline."""
-    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
-    mlflow.set_experiment(config["mlflow"]["experiment_name"])
+    # Set up MLflow with comprehensive error handling
+    try:
+        # Set MLflow tracking URI and artifact root
+        tracking_uri = config["mlflow"]["tracking_uri"]
+        mlflow.set_tracking_uri(tracking_uri)
 
-    with mlflow.start_run():
-        # Load and preprocess data
-        df = load_data(config)
-        X_train, X_test, y_train, y_test, scaler = preprocess_data(df, config)
+        # Ensure we have a writable artifact directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        artifact_root = os.path.join(project_root, "mlflow_shared")
 
-        # Build and train model
-        model = build_model(X_train.shape[1], config)
+        # Create artifact directory if it doesn't exist
+        os.makedirs(artifact_root, exist_ok=True)
 
-        history = model.fit(
-            X_train, y_train,
-            epochs=50,  # Reduced epochs for faster training
-            batch_size=32,
-            validation_split=0.2,
-            callbacks=[
-                tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True)
-            ]
-        )
+        # Set environment variables to force MLflow to use our artifact root
+        os.environ["MLFLOW_DEFAULT_ARTIFACT_ROOT"] = os.path.abspath(artifact_root)
+        os.environ["MLFLOW_ARTIFACT_ROOT"] = os.path.abspath(artifact_root)
 
-        # Evaluate model
-        metrics = evaluate_model(model, X_test, y_test)
-        logger.info(f"Model metrics: {metrics}")
+        logger.info(f"MLflow tracking URI: {tracking_uri}")
+        logger.info(f"MLflow artifact root: {os.path.abspath(artifact_root)}")
 
-        # Make predictions on test set for A/B testing
-        y_pred = model.predict(X_test)
-        if hasattr(y_pred, 'flatten'):
-            y_pred = y_pred.flatten()
+        # Test MLflow connection
+        client = mlflow.tracking.MlflowClient()
+        try:
+            # Try to get or create experiment
+            experiment_name = config["mlflow"]["experiment_name"]
+            experiment = client.get_experiment_by_name(experiment_name)
+            if experiment is None:
+                experiment_id = client.create_experiment(experiment_name)
+                logger.info(f"Created experiment '{experiment_name}' with ID: {experiment_id}")
+            else:
+                logger.info(f"Using existing experiment '{experiment_name}'")
+            mlflow.set_experiment(experiment_name)
+        except Exception as e:
+            logger.warning(f"Could not set experiment, using default: {e}")
+            mlflow.set_experiment("Default")
 
-        # Create predictions DataFrame for A/B testing
-        predictions_df = pd.DataFrame({
-            'actual': y_test,
-            'predicted': y_pred,
-            'error': np.abs(y_test - y_pred)
-        })
+    except Exception as e:
+        logger.error(f"MLflow setup failed: {e}")
+        logger.info("Continuing without MLflow logging...")
+        # Set a flag to skip MLflow operations
+        config["_skip_mlflow"] = True
 
-        # Log metrics and artifacts
-        mlflow.log_metrics(metrics)
-        mlflow.log_params({
-            "learning_rate": 0.001,
-            "epochs": 50,
-            "batch_size": 32
-        })
+    # Load and preprocess data
+    df = load_data(config)
+    X_train, X_test, y_train, y_test, scaler = preprocess_data(df, config)
 
-        # Create models directory if it doesn't exist
-        os.makedirs("models", exist_ok=True)
+    # Build and train model
+    model = build_model(X_train.shape[1], config)
+    history = model.fit(
+        X_train, y_train,
+        epochs=50,
+        batch_size=32,
+        validation_split=0.2,
+        callbacks=[
+            tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True)
+        ]
+    )
 
-        # Save model
-        model_path = os.path.join("models", "model.h5")
-        model.save(model_path)
-        mlflow.log_artifact(model_path)
+    # Evaluate model
+    metrics = evaluate_model(model, X_test, y_test)
+    logger.info(f"Model metrics: {metrics}")
 
-        # Save scaler
-        scaler_path = os.path.join("models", "scaler.pkl")
-        with open(scaler_path, "wb") as f:
-            import pickle
-            pickle.dump(scaler, f)
-        mlflow.log_artifact(scaler_path)
+    y_pred = model.predict(X_test)
+    if hasattr(y_pred, 'flatten'):
+        y_pred = y_pred.flatten()
 
-        # Save predictions for A/B testing
-        predictions_path = os.path.join("models", "predictions.parquet")
-        predictions_df.to_parquet(predictions_path, index=False)
-        mlflow.log_artifact(predictions_path)
+    predictions_df = pd.DataFrame({
+        'actual': y_test,
+        'predicted': y_pred,
+        'error': np.abs(y_test - y_pred)
+    })
 
-        # Set tags for A/B testing
-        mlflow.set_tag("group", "control")  # Default to control group
-        mlflow.set_tag("model_version", config["model"]["version"])
-        mlflow.set_tag("experiment_type", "training")
+    # Save model locally regardless of MLflow status
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    models_dir = os.path.join(project_root, "models")
+    os.makedirs(models_dir, exist_ok=True)
 
-        # Register model in MLflow
-        mlflow.tensorflow.log_model(
-            model,
-            "model",
-            registered_model_name=config["model"]["name"]
-        )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    local_model_path = os.path.join(models_dir, f"model_{timestamp}.h5")
+    local_scaler_path = os.path.join(models_dir, f"scaler_{timestamp}.pkl")
+    local_predictions_path = os.path.join(models_dir, f"predictions_{timestamp}.parquet")
+
+    model.save(local_model_path)
+    logger.info(f"Model saved locally: {local_model_path}")
+
+    import pickle
+    with open(local_scaler_path, "wb") as f:
+        pickle.dump(scaler, f)
+    logger.info(f"Scaler saved locally: {local_scaler_path}")
+
+    predictions_df.to_parquet(local_predictions_path, index=False)
+    logger.info(f"Predictions saved locally: {local_predictions_path}")
+
+    # Try MLflow logging with error handling
+    if not config.get("_skip_mlflow", False):
+        try:
+            with mlflow.start_run():
+                # Log metrics and params
+                mlflow.log_metrics(metrics)
+                mlflow.log_params({
+                    "learning_rate": 0.001,
+                    "epochs": 50,
+                    "batch_size": 32
+                })
+
+                # Log artifacts with retry mechanism
+                try:
+                    mlflow.log_artifact(local_model_path)
+                    mlflow.log_artifact(local_scaler_path)
+                    mlflow.log_artifact(local_predictions_path)
+                    logger.info("✅ Successfully logged artifacts to MLflow")
+                except Exception as e:
+                    logger.warning(f"Failed to log artifacts to MLflow: {e}")
+                    logger.info("Model files are still saved locally")
+
+                # Set tags
+                try:
+                    mlflow.set_tag("group", "control")
+                    mlflow.set_tag("model_version", config["model"]["version"])
+                    mlflow.set_tag("experiment_type", "training")
+                    mlflow.set_tag("local_model_path", local_model_path)
+                except Exception as e:
+                    logger.warning(f"Failed to set MLflow tags: {e}")
+
+                # Register model
+                try:
+                    mlflow.tensorflow.log_model(
+                        model,
+                        "model",
+                        registered_model_name=config["model"]["name"]
+                    )
+                    logger.info("✅ Successfully registered model in MLflow")
+                except Exception as e:
+                    logger.warning(f"Failed to register model in MLflow: {e}")
+
+        except Exception as e:
+            logger.error(f"MLflow logging failed completely: {e}")
+            logger.info("Training completed successfully, but MLflow logging failed")
+            logger.info(f"Model artifacts saved locally in: {models_dir}")
+    else:
+        logger.info("MLflow logging skipped due to setup issues")
+        logger.info(f"Model artifacts saved locally in: {models_dir}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Train transport prediction model")
     parser.add_argument("--config", default="configs/config.yaml", help="Path to config file")
     args = parser.parse_args()
 
-    config = load_config()
+    config = load_config(args.config)
     train_model(config)
 
 if __name__ == "__main__":
