@@ -14,7 +14,7 @@ from prometheus_client import Counter, Histogram, start_http_server
 import pandas as pd
 
 # Load configuration
-with open("../configs/config.yaml") as f:
+with open("./configs/config.yaml") as f:
     config = yaml.safe_load(f)
 
 # Setup logging
