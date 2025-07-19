@@ -1,14 +1,41 @@
 # Model Configuration
 model:
-  name: "transport_predictor"
+  name: "accra_transport_demand_predictor"
   version: "1.0.0"
-  architecture: "transformer"
+  architecture: "ensemble"  # Changed from "transformer" to "ensemble"
+  ensemble_method: "stacking"
+  base_models:
+    - "random_forest"
+    - "xgboost"
+    - "lightgbm"
+    - "gradient_boosting"
+  meta_model: "linear_regression"
   params:
-    learning_rate: 0.001
-    batch_size: 64
-    epochs: 100
-    early_stopping_patience: 5
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+      random_state: 42
+    xgboost:
+      n_estimators: 100
+      max_depth: 6
+      learning_rate: 0.1
+      random_state: 42
+    lightgbm:
+      n_estimators: 100
+      max_depth: 6
+      learning_rate: 0.1
+      random_state: 42
+    gradient_boosting:
+      n_estimators: 100
+      max_depth: 6
+      learning_rate: 0.1
+      random_state: 42
+  training:
+    test_size: 0.2
     validation_split: 0.2
+    cross_validation_folds: 5
+    early_stopping_patience: 10
+    random_state: 42
 
 # Data Paths
 data:
@@ -25,14 +52,41 @@ features:
     - "route_id"
     - "stop_id"
     - "direction_id"
+    - "route_type"
+    - "agency_id"
+    - "service_id"
+    - "stop_zone"
+    - "time_period"
+    - "day_type"  # weekday, weekend, holiday
   numerical_columns:
     - "distance"
     - "speed"
     - "passenger_count"
+    - "route_length"
+    - "stop_sequence"
+    - "stop_lat"
+    - "stop_lon"
+    - "fare_price"
+    - "headway"
+    - "vehicle_capacity"
   temporal_columns:
     - "timestamp"
     - "day_of_week"
     - "hour_of_day"
+    - "minute_of_hour"
+    - "time_of_day"
+    - "is_peak_hour"
+    - "is_weekend"
+    - "is_holiday"
+  derived_features:
+    - "demand_density"
+    - "route_popularity"
+    - "stop_importance"
+    - "time_efficiency"
+    - "capacity_utilization"
+    - "historical_demand_avg"
+    - "seasonal_factor"
+    - "weather_impact"
 
 # Model Artifacts
 artifacts:
@@ -40,9 +94,10 @@ artifacts:
   current_model: "models/current"
   archive_dir: "models/archive"
   mlflow:
-    tracking_uri: "sqlite:///mlflow.db"
-    experiment_name: "transport_optimization"
-    model_name: "transport_predictor"
+    tracking_uri: "http://localhost:5000"
+    experiment_name: "accra_transport_optimization"
+    model_name: "accra_transport_demand_predictor"
+    registry_uri: "http://localhost:5000"
 
 # API Configuration
 api:
@@ -81,10 +136,14 @@ evaluation:
     - "mae"
     - "rmse"
     - "r2"
+    - "mape"
+    - "smape"
   threshold:
     mae: 5.0
     rmse: 7.0
     r2: 0.8
+    mape: 15.0
+    smape: 12.0
 
 # Rollback Configuration
 rollback:
@@ -97,10 +156,14 @@ rollback:
 mlflow:
   tracking_uri: "http://localhost:5000"
   registry_uri: "http://localhost:5000"
-  experiment_name: "Default"
+  experiment_name: "accra_transport_optimization"
+  model_name: "accra_transport_demand_predictor"
   tags:
     environment: "development"
     team: "ml-engineering"
+    project: "accra_transport"
+    city: "accra"
+    country: "ghana"
 
 # Security
 security:
@@ -116,6 +179,15 @@ route_optimization:
   include_demand_estimation: true
   distance_calculation_method: "haversine"
   optimization_timeout: 300  # seconds
+  average_speed_kmh: 30.0
+  optimization_algorithm: "or_tools_vrp"
+  constraints:
+    max_route_distance: 50  # km
+    min_route_distance: 1   # km
+    max_stops_per_route: 50
+    min_stops_per_route: 2
+    max_travel_time: 120    # minutes
+    min_travel_time: 5      # minutes
 
 # Schedule optimization settings
 schedule_optimization:
@@ -123,6 +195,7 @@ schedule_optimization:
   min_headway: 5  # minutes
   max_headway: 30  # minutes
   max_fleet_size: 50
+  optimization_algorithm: "pulp_linear_programming"
   service_hours:
     start: 6  # 6 AM
     end: 22   # 10 PM
@@ -132,6 +205,8 @@ schedule_optimization:
     - "afternoon_peak"
     - "evening"
     - "night"
+  demand_based_headway: true
+  cost_optimization: true
 
 # Demand prediction settings
 demand_prediction:
@@ -140,25 +215,44 @@ demand_prediction:
     - "xgboost"
     - "lightgbm"
     - "gradient_boosting"
+  ensemble_method: "stacking"
   test_size: 0.2
   random_state: 42
   cross_validation_folds: 5
+  feature_selection: true
+  hyperparameter_tuning: true
   feature_columns:
+    # Time-based features
     - "hour"
     - "minute"
     - "time_of_day"
     - "time_period"
-    - "monday"
-    - "tuesday"
-    - "wednesday"
-    - "thursday"
-    - "friday"
-    - "saturday"
-    - "sunday"
+    - "day_of_week"
+    - "is_peak_hour"
+    - "is_weekend"
+    - "is_holiday"
+    # Route features
     - "route_type_encoded"
+    - "route_length"
+    - "route_popularity"
+    - "headway"
+    - "fare_price"
+    # Stop features
     - "stop_sequence"
     - "stop_lat"
     - "stop_lon"
+    - "stop_importance"
+    - "stop_zone"
+    # Demand features
+    - "historical_demand_avg"
+    - "demand_density"
+    - "capacity_utilization"
+    - "seasonal_factor"
+    # Environmental features
+    - "weather_condition"
+    - "temperature"
+    - "precipitation"
+    - "special_events"
 
 # Visualization settings
 visualization:
@@ -169,8 +263,13 @@ visualization:
     major_stops: "red"
     medium_stops: "orange"
     regular_stops: "blue"
+    high_demand: "darkred"
+    medium_demand: "orange"
+    low_demand: "lightblue"
   chart_width: 1000
   chart_height: 600
+  interactive_features: true
+  real_time_updates: true
 
 # GTFS processing settings
 gtfs:
@@ -187,6 +286,10 @@ gtfs:
     - "fare_rules.txt"
   time_format: "%H:%M:%S"
   date_format: "%Y%m%d"
+  validation:
+    check_relationships: true
+    validate_coordinates: true
+    check_time_consistency: true
 
 # Optimization constraints
 constraints:
@@ -196,6 +299,9 @@ constraints:
   min_stops_per_route: 2
   max_travel_time: 120    # minutes
   min_travel_time: 5      # minutes
+  max_waiting_time: 15    # minutes
+  min_headway: 3          # minutes
+  max_headway: 60         # minutes
 
 # Performance targets
 targets:
@@ -204,3 +310,6 @@ targets:
   demand_prediction_accuracy: 85    # percentage
   schedule_optimization_time: 300   # seconds
   api_response_time: 2              # seconds
+  prediction_accuracy_mae: 5.0      # passengers
+  prediction_accuracy_r2: 0.85      # R-squared
+  optimization_success_rate: 95     # percentage
